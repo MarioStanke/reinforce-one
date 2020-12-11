@@ -1,2 +1,2 @@
-# reinforce-one
-Reinforcement learning for One Health
+# REINFORCE One
+Reinforcement Learning for One Health
