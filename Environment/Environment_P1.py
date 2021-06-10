@@ -77,6 +77,7 @@ class Env_P1(py_environment.PyEnvironment):
                 ):
         super(Env_P1, self).__init__()
         self._state = None
+        self._observation = None
         self._discount = np.float32(1)
         self._time = 0
         self._episode_length = 0
@@ -95,12 +96,12 @@ class Env_P1(py_environment.PyEnvironment):
     
     def action_spec(self):
         #Actions for: number of subjects to be tested h1, h2. number of subjects to be eliminated h1, h2
-        return BoundedArraySpec((1,4), np.float32, minimum=0, maximum=1)
+        return BoundedArraySpec((4,), np.float32, minimum=0, maximum=1)
     
     
     def observation_spec(self):
         # tau, x0, x1 for both herds
-        return BoundedArraySpec((1,6), np.int32, minimum=0, maximum=2**20)
+        return BoundedArraySpec((6,), np.int32, minimum=0, maximum=2000)
     
     
     def _reset(self):
@@ -113,34 +114,27 @@ class Env_P1(py_environment.PyEnvironment):
         number of negative tests
         for each herd.  
         '''
-        self._state = np.zeros((2,6), np.int32)
+        self._state = np.zeros((4,), np.int32)
         initial_infected_h1 = np.random.randint(low = 1, high = (self._population_herd1/8))
         self._time = 0
         self._reward = np.float32(0)
         self._episode_length = geom.rvs(p = 1/270)
-        self._state[1][3] = 0    #infected h2
-        self._state[1][2] = initial_infected_h1    #infected h1
-        self._state[1][1] = self._population_herd2
-        self._state[1][0] = self._population_herd1
-        self._state[0][5] = 0    #x1 tested pos h2
-        self._state[0][4] = 0    #x0 tested neg h2
-        self._state[0][3] = 0    #tau time since test h2
-        self._state[0][2] = 0    #x1 tested pos h1
-        self._state[0][1] = 0    #x0 tested neg h1
-        self._state[0][0] = 0    #tau time since test h1
-        observation = np.zeros((1,6), np.int32)
-        observation[0] = self._state[0]
+        self._state[3] = 0    #infected h2
+        self._state[2] = initial_infected_h1    #infected h1
+        self._state[1] = self._population_herd2
+        self._state[0] = self._population_herd1
+        self._observation = np.zeros((6,), np.int32)
         return TimeStep(StepType.FIRST, reward=self._reward,
-                    discount=self._discount, observation = observation)
+                    discount=self._discount, observation = self._observation)
     
     def _test(self, herd = -1, num_tests = 0):
         '''
         Randomly draws (without returning) num_tests subjects of a herd,
         then tests whether they are infected or not before returning testresults.
         '''
-        assert self._state[1][herd] >= num_tests, "More tests than herd members."
+        assert self._state[herd] >= num_tests, "More tests than herd members."
         if herd >= 0 and num_tests > 0:
-            test_out = hypergeom.rvs(M = self._state[1][herd], n = self._state[1][herd+2], N = int(num_tests), size = 1)
+            test_out = hypergeom.rvs(M = self._state[herd], n = self._state[herd+2], N = int(num_tests), size = 1)
             testresults = np.zeros(3, np.int32)
             testresults[1] = num_tests - test_out #negative tests
             testresults[2] = test_out #positive tests
@@ -155,10 +149,10 @@ class Env_P1(py_environment.PyEnvironment):
         self._exchanged_members subjects from all subjects of origin_herd.
         returns numbers of infected transfers and susceptible transfers.'''
         #failsafe for k>n?
-        assert self._state[1][origin_herd] > self._exchanged_members, "Population in origin herd too low."
+        assert self._state[origin_herd] > self._exchanged_members, "Population in origin herd too low."
         if origin_herd >= 0 and target_herd >=0 and self._time % self._weeks_until_exchange == 0:
-            infected_transfers = hypergeom.rvs(M = self._state[1][origin_herd], 
-                                                 n = self._state[1][origin_herd+2], N = self._exchanged_members, size = 1)
+            infected_transfers = hypergeom.rvs(M = self._state[origin_herd], 
+                                                 n = self._state[origin_herd+2], N = self._exchanged_members, size = 1)
             susceptible_transfers = self._exchanged_members - infected_transfers
             return np.array([susceptible_transfers, infected_transfers])    
         else:
@@ -173,7 +167,7 @@ class Env_P1(py_environment.PyEnvironment):
         calls f(x) or simply replaces all subjects by healthy subjects for each herd.
         '''
         
-        initial_state = self._state[1]
+        initial_state = self._state
         #Model for one herd
         def f(x):
             s_to_i = 0
@@ -186,16 +180,16 @@ class Env_P1(py_environment.PyEnvironment):
         
         #One step for each herd
         if s1:
-            initial_state_h2 = [self._state[1][1]-self._state[1][3], self._state[1][3]]
-            S1, I1 = [self._state[1][0], 0]
+            initial_state_h2 = [self._state[1]-self._state[3], self._state[3]]
+            S1, I1 = [self._state[0], 0]
             S2, I2 = f(x = initial_state_h2)
         elif s2: 
-            initial_state_h1 = [self._state[1][0]-self._state[1][2], self._state[1][2]]
+            initial_state_h1 = [self._state[0]-self._state[2], self._state[2]]
             S1, I1 = f(x = initial_state_h1)
-            S2, I2 = [self._state[1][1], 0]
+            S2, I2 = [self._state[1], 0]
         else:
-            initial_state_h1 = [self._state[1][0]-self._state[1][2], self._state[1][2]]
-            initial_state_h2 = [self._state[1][1]-self._state[1][3], self._state[1][3]]
+            initial_state_h1 = [self._state[0]-self._state[2], self._state[2]]
+            initial_state_h2 = [self._state[1]-self._state[3], self._state[3]]
             S1, I1 = f(x = initial_state_h1)
             S2, I2 = f(x = initial_state_h2)
         return np.array([S1+I1, S2+I2, I1, I2])
@@ -210,12 +204,12 @@ class Env_P1(py_environment.PyEnvironment):
         Where s_i is indicator for whether a herd was replaced by healthy subjects
         and replacement_cost is a constant representing the cost of replacing a single subject.
         '''
-        tau_1 = np.round(action[0][0] * self._state[1][0]) 
-        tau_2 = np.round(action[0][1] * self._state[1][1])
+        tau_1 = np.round(action[0] * self._state[0]) 
+        tau_2 = np.round(action[1] * self._state[1])
         indicator_1, indicator_2, s1, s2 = 0, 0, 0, 0 
-        if action[0][2] > 1/2 and action[0][3] <= 1/2:
+        if action[2] > 1/2 and action[3] <= 1/2:
             s1 = 1
-        if action[0][3] > 1/2 and action[0][2] <= 1/2:
+        if action[3] > 1/2 and action[2] <= 1/2:
             s2 = 1
         if tau_1 > 0:
             indicator_1 = 1
@@ -223,8 +217,8 @@ class Env_P1(py_environment.PyEnvironment):
             indicator_2 = 1
         self._reward -= self._discount * (tau_1 * self._c_tests + indicator_1 * self._c_prime_tests)
         self._reward -= self._discount * (tau_2 * self._c_tests + indicator_2 * self._c_prime_tests)
-        self._reward -= self._discount * (s1 * self._state[1][0] * self._e_removed + s2 * self._state[1][1] * self._e_removed)
-        self._reward -= self._discount * (self._state[1][2] + self._state[1][3])
+        self._reward -= self._discount * (s1 * self._state[0] * self._e_removed + s2 * self._state[1] * self._e_removed)
+        self._reward -= self._discount * (self._state[2] + self._state[3])
         return self._reward
     
     def _step(self, action: np.ndarray):
@@ -240,7 +234,7 @@ class Env_P1(py_environment.PyEnvironment):
         TODOS: Check chronology
         '''
         if self._current_time_step.is_last():
-            return self._reset()
+            return self.reset()
         
         self._time += 1
         origin_herd = 0
@@ -248,36 +242,37 @@ class Env_P1(py_environment.PyEnvironment):
         transfers = self._transfer(origin_herd = origin_herd, target_herd = target_herd)
         back_transfers = self._transfer(origin_herd = target_herd, target_herd = origin_herd)
         if transfers is not None:
-            self._state[1][origin_herd] = self._state[1][origin_herd] - transfers[0] - transfers[1] + back_transfers[0] + back_transfers[1]
-            self._state[1][target_herd] = self._state[1][target_herd] + transfers[0] + transfers[1] - back_transfers[0] - back_transfers[1]
-            self._state[1][origin_herd+2] = self._state[1][origin_herd+2] - transfers[1] + back_transfers[1]
-            self._state[1][target_herd+2] = self._state[1][target_herd+2] + transfers[1] - back_transfers[1]
+            self._state[origin_herd] = self._state[origin_herd] - transfers[0] - transfers[1] + back_transfers[0] + back_transfers[1]
+            self._state[target_herd] = self._state[target_herd] + transfers[0] + transfers[1] - back_transfers[0] - back_transfers[1]
+            self._state[origin_herd+2] = self._state[origin_herd+2] - transfers[1] + back_transfers[1]
+            self._state[target_herd+2] = self._state[target_herd+2] + transfers[1] - back_transfers[1]
             
         #interpreting actions
-        num_test_h1 = np.round(action[0][0] * self._state[1][0])
-        num_test_h2 = np.round(action[0][1] * self._state[1][1])
+        num_test_h1 = np.round(action[0] * self._state[0])
+        num_test_h2 = np.round(action[1] * self._state[1])
         
         rem_h1 = False
         rem_h2 = False
-        if action[0][2] > 1/2 and action[0][3] <= 1/2:
+        if action[2] > 1/2 and action[3] <= 1/2:
             rem_h1 = True
-        if action[0][3] > 1/2 and action[0][2] <= 1/2:
+        if action[3] > 1/2 and action[2] <= 1/2:
             rem_h2 = True
             
         #Model should make a step in between transfer and test
-        self._state[1][0:4] = self._model(action, s1 = rem_h1, s2 = rem_h2)
+        self._state = self._model(action, s1 = rem_h1, s2 = rem_h2)
+        
         #Testing 
         self._tests.append(self._test(herd = 0, num_tests = num_test_h1))
         self._tests.append(self._test(herd = 1, num_tests = num_test_h2))
         
         for i in range (0, np.ma.size(self._tests, axis = 0)):
             if self._tests[i][0] == self._weeks_until_testresults:
-                self._state[0][5] = self._tests[i+1][2]    #x1 tested pos h2
-                self._state[0][4] = self._tests[i+1][1]    #x0 tested neg h2
-                self._state[0][3] = self._weeks_until_testresults    
-                self._state[0][2] = self._tests[i][2]    #x1 tested pos h1
-                self._state[0][1] = self._tests[i][1]    #x0 tested neg h1
-                self._state[0][0] = self._weeks_until_testresults
+                self._observation[5] = self._tests[i+1][2]    #x1 tested pos h2
+                self._observation[4] = self._tests[i+1][1]    #x0 tested neg h2
+                self._observation[3] = self._weeks_until_testresults    
+                self._observation[2] = self._tests[i][2]    #x1 tested pos h1
+                self._observation[1] = self._tests[i][1]    #x0 tested neg h1
+                self._observation[0] = self._weeks_until_testresults
                 self._tests.pop(i)
                 self._tests.pop(i)
                 break
@@ -287,17 +282,13 @@ class Env_P1(py_environment.PyEnvironment):
         #Reward function
         reward = np.float32(self._reward_func(action))
         
-        #debugging
-        #if self._time % 50 == 0:
-            #print(self._state)
         #output
         if self._time == self._episode_length:
-            Final_Step = TimeStep(StepType.LAST, reward=reward, discount=self._discount, observation=np.array([self._state[0]]))
-            self._reset()
-            return Final_Step
-            
+            return TimeStep(StepType.LAST, reward=reward, discount=self._discount, observation=self._observation)
+            #return TimeStep(StepType.LAST, reward=reward, discount=self._discount, observation=np.array([self._state[0]]))
         else:
-            return TimeStep(StepType.MID, reward=reward, discount=self._discount, observation=np.array([self._state[0]]))
+            return TimeStep(StepType.MID, reward=reward, discount=self._discount, observation=self._observation)
+            #return TimeStep(StepType.MID, reward=reward, discount=self._discount, observation=np.array([self._state[0]]))
 
 
 
