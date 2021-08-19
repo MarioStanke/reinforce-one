@@ -114,6 +114,7 @@ class Env_P1(py_environment.PyEnvironment):
         number of negative tests
         for each herd.  
         '''
+        self._tests = []
         self._state = np.zeros((4,), np.int32)
         initial_infected_h1 = np.random.randint(low = 1, high = (self._population_herd1/8))
         self._time = 0
@@ -240,12 +241,15 @@ class Env_P1(py_environment.PyEnvironment):
         if self._current_time_step.is_last():
             return self.reset()
         
-        if action[2] != 1 and action[2] != 0 and action[2] >= 1/2 and action[3] < 1/2:
-            action[2] = 1
-            action[3] = 0
-        if action[3] != 1 and action[3] != 0 and action[3] >= 1/2 and action[2] < 1/2:
-            action[3] = 1
-            action[2] = 0
+        if action[2] != np.float32(1) and action[2] != np.float32(0) and action[2] >= 1/2 and action[3] < 1/2:
+            action[2] = np.float32(1)
+            action[3] = np.float32(0)
+        elif action[3] != np.float32(1) and action[3] != np.float32(0) and action[3] >= 1/2 and action[2] < 1/2:
+            action[3] = np.float32(1)
+            action[2] = np.float32(0)
+        else: 
+            action[2] = np.float32(0)
+            action[3] = np.float32(0)
             
         self._time += 1
         origin_herd = 0
@@ -264,6 +268,7 @@ class Env_P1(py_environment.PyEnvironment):
             
         #Model should make a step in between transfer and test
         self._state = self._model(action)
+        
         #Testing 
         self._tests.append(self._test(herd = 0, num_tests = num_test_h1))
         self._tests.append(self._test(herd = 1, num_tests = num_test_h2))
@@ -285,7 +290,7 @@ class Env_P1(py_environment.PyEnvironment):
         #Reward function
         self._reward = np.float32(self._reward_func(action))
         step_reward = np.float32(0)
-            
+        
         #output
         if self._time == self._episode_length:
             return TimeStep(StepType.LAST, reward=self._reward, discount=self._discount, observation=self._observation)

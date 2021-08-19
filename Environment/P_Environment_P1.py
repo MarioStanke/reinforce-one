@@ -123,6 +123,9 @@ class P_Env_P1(py_environment.PyEnvironment):
         number of negative tests
         for each herd.  
         '''
+        self._actions = []
+        self._states = []
+        self._tests = []
         self._state = np.zeros((4,), np.int32)
         initial_infected_h1 = np.random.randint(low = 1, high = (self._population_herd1/8))
         self._time = 0
@@ -242,16 +245,20 @@ class P_Env_P1(py_environment.PyEnvironment):
         p1.set_title('Tests over Time')
         p1.set_xlabel('Time')
         p1.set_ylabel('Number of Tests')
+        p1.set_ylim(-0.5,1.5)
         p2.set_title('Herd Replacement over Time')
         p2.set_xlabel('Time')
         p2.set_ylabel('Replacement')
+        p2.set_ylim(-0.5,1.5)
         fig2.suptitle('Tests and Infectious over Time')
-        q2.set_title('Herd 1')
-        q2.set_xlabel('Time')
-        q2.set_ylabel('Tests and Infectious in %')
+        q1.set_title('Herd 1')
+        q1.set_xlabel('Time')
+        q1.set_ylabel('Tests and Infectious in %')
+        q1.set_ylim(-0.5,1.5)
         q2.set_title('Herd 2')
         q2.set_xlabel('Time')
         q2.set_ylabel('Tests and Infectious in %')
+        q2.set_ylim(-0.5,1.5)
         root_dir = self._root_dir
         root_dir = os.path.expanduser(root_dir) 
         fnm = os.path.join(root_dir, 'A' + '_' + str(self._time) + '_' + str(self._global_step)) 
@@ -270,11 +277,15 @@ class P_Env_P1(py_environment.PyEnvironment):
         p1.plot(t, ntests1, color='blue', label = 'Tests Herd 1', marker = '.', linestyle = '')
         p1.plot(t, ntests2, color='red', label = 'Tests Herd 2', marker = '.', linestyle = '')
         p2.plot(t, sone, color='blue', label = 'Replace Herd 1', marker = '.', linestyle = '')
-        p2.plot(t, stwo, color='red', label = 'Replace Herd 2', marker = '^', linestyle = '')
+        p2.plot(t, stwo, color='red', label = 'Replace Herd 2', marker = '.', linestyle = '')
         q1.plot(t, I_1, color='lightgreen', label = 'Infectious Herd 1')
         q1.plot(t, ntests1, color='blue', label = 'Tests Herd 1')
         q2.plot(t, I_2, color='lightgreen', label = 'Infectious Herd 2')
         q2.plot(t, ntests2, color='blue', label = 'Tests Herd 2')
+        p1.legend()
+        p2.legend()
+        q1.legend()
+        q2.legend()
         fig.savefig(fnm + '.jpg',bbox_inches='tight', dpi=150)
         fig2.savefig(fnm2 + '.jpg',bbox_inches='tight', dpi=150)
         plt.close('all')
@@ -295,12 +306,15 @@ class P_Env_P1(py_environment.PyEnvironment):
         if self._current_time_step.is_last():
             return self.reset()
         
-        if action[2] != 1 and action[2] != 0 and action[2] >= 1/2 and action[3] < 1/2:
-            action[2] = 1
-            action[3] = 0
-        if action[3] != 1 and action[3] != 0 and action[3] >= 1/2 and action[2] < 1/2:
-            action[3] = 1
-            action[2] = 0
+        if action[2] != np.float32(1) and action[2] != np.float32(0) and action[2] >= 1/2 and action[3] < 1/2:
+            action[2] = np.float32(1)
+            action[3] = np.float32(0)
+        elif action[3] != np.float32(1) and action[3] != np.float32(0) and action[3] >= 1/2 and action[2] < 1/2:
+            action[3] = np.float32(1)
+            action[2] = np.float32(0)
+        else: 
+            action[2] = np.float32(0)
+            action[3] = np.float32(0)
             
         self._time += 1
         origin_herd = 0
@@ -342,6 +356,8 @@ class P_Env_P1(py_environment.PyEnvironment):
         step_reward = np.float32(0)
         
         #Plotting
+        for j in range (len(action)):
+            assert (0 <= action[j] <=1)
         self._actions.append(action)
         self._states.append(self._state)
         
