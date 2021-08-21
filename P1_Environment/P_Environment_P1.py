@@ -9,6 +9,8 @@
 import datetime as dt
 import matplotlib
 import matplotlib.pyplot as plt
+get_ipython().run_line_magic('matplotlib', 'inline')
+plt.ioff() # for py work
 import numpy as np
 import os
 import pandas as pd
@@ -30,7 +32,7 @@ from tf_agents.trajectories.time_step import TimeStep
 # 
 # <img src="Sketch.jpeg"
 #      alt="Env_P1 Sketch"
-#      style="float: left; margin-right: 8px;" />
+#      style="float: left; margin-right: 5px;" />
 # ## Variables:  
 # The action $\in \mathbb{R}^4$ is a vector $(\tau_1, \tau_2, s_1, s_2)$.  
 # $\tau_i$ are the number of tests to be done in herd $i$.  
@@ -66,8 +68,10 @@ from tf_agents.trajectories.time_step import TimeStep
 # In[2]:
 
 
-class Env_P1(py_environment.PyEnvironment):
+class P_Env_P1(py_environment.PyEnvironment):
     def __init__(self,
+                root_dir, #path for plotting
+                global_step = 0, #ID for plotting
                 population_herd1 = 200,
                 population_herd2 = 50,
                 exchanged_members = 5,
@@ -75,7 +79,7 @@ class Env_P1(py_environment.PyEnvironment):
                 rand_recovery_prob = 0.005,
                 rand_infection_prob = 0.01,
                 ):
-        super(Env_P1, self).__init__()
+        super(P_Env_P1, self).__init__()
         self._state = None
         self._observation = None
         self._discount = np.float32(1)
@@ -83,9 +87,9 @@ class Env_P1(py_environment.PyEnvironment):
         self._episode_length = 0
         self._tests = []
         self._reward = np.float32(0)
-        self._c_tests = 1    #cost for each test
-        self._c_prime_tests = 50    #organizational costs tests
-        self._e_removed = 10    #individual replacement cost
+        self._c_tests = 0.5   #cost for each test
+        self._c_prime_tests = 10    #organizational costs tests
+        self._e_removed = 3   #individual replacement cost
         self._weeks_until_testresults = 3
         self._population_herd1 = population_herd1
         self._population_herd2 = population_herd2
@@ -93,7 +97,12 @@ class Env_P1(py_environment.PyEnvironment):
         self._weeks_until_exchange = weeks_until_exchange    #T from scrapsheet
         self._rand_recovery_prob = rand_recovery_prob    #g from scrapsheet
         self._rand_infection_prob = rand_infection_prob    #q from scrapsheet
-    
+        
+        self._actions = []
+        self._states = []
+        self._root_dir = root_dir
+        self._global_step = global_step
+        
     def action_spec(self):
         #Actions for: number of subjects to be tested h1, h2. number of subjects to be eliminated h1, h2
         return BoundedArraySpec((4,), np.float32, minimum=0, maximum=1)
@@ -114,6 +123,8 @@ class Env_P1(py_environment.PyEnvironment):
         number of negative tests
         for each herd.  
         '''
+        self._actions = []
+        self._states = []
         self._tests = []
         self._state = np.zeros((4,), np.int32)
         initial_infected_h1 = np.random.randint(low = 1, high = (self._population_herd1/8))
@@ -220,11 +231,65 @@ class Env_P1(py_environment.PyEnvironment):
             indicator_1 = 1
         if action[1] > 0:
             indicator_2 = 1
-        self._reward -= self._discount * (tau_1 * self._c_tests + indicator_1 * self._c_prime_tests)
-        self._reward -= self._discount * (tau_2 * self._c_tests + indicator_2 * self._c_prime_tests)
-        self._reward -= self._discount * (action[2] * self._state[0] * self._e_removed + action[3] * self._state[1] * self._e_removed)
-        self._reward -= self._discount * (self._state[2] + self._state[3])
+        self._reward -= self._discount * (tau_1 * self._c_tests + indicator_1 * self._c_prime_tests) / 10
+        self._reward -= self._discount * (tau_2 * self._c_tests + indicator_2 * self._c_prime_tests) / 10
+        self._reward -= self._discount * ((action[2] * self._state[0] + action[3] * self._state[1]) / 10) * self._e_removed
+        self._reward -= self._discount * ((self._state[2] + self._state[3]) / 10)**1.4
         return self._reward
+    
+    def plot_actions_and_states(self):
+        t = np.linspace(0, self._time, num=len(self._actions))
+        fig, (p1,p2) = plt.subplots(1, 2, figsize=(20,10))
+        fig2, (q1,q2) = plt.subplots(1, 2, figsize=(20,10))
+        fig.suptitle('Actions over Time')
+        p1.set_title('Tests over Time')
+        p1.set_xlabel('Time')
+        p1.set_ylabel('Number of Tests')
+        p1.set_ylim(-0.5,1.5)
+        p2.set_title('Herd Replacement over Time')
+        p2.set_xlabel('Time')
+        p2.set_ylabel('Replacement')
+        p2.set_ylim(-0.5,1.5)
+        fig2.suptitle('Tests and Infectious over Time')
+        q1.set_title('Herd 1')
+        q1.set_xlabel('Time')
+        q1.set_ylabel('Tests and Infectious in %')
+        q1.set_ylim(-0.5,1.5)
+        q2.set_title('Herd 2')
+        q2.set_xlabel('Time')
+        q2.set_ylabel('Tests and Infectious in %')
+        q2.set_ylim(-0.5,1.5)
+        root_dir = self._root_dir
+        root_dir = os.path.expanduser(root_dir) 
+        fnm = os.path.join(root_dir, 'A' + '_' + str(self._time) + '_' + str(self._global_step)) 
+        fnm2 = os.path.join(root_dir, 'I+A' + '_' + str(self._time) + '_' + str(self._global_step)) 
+        ntests1, ntests2, sone, stwo = [], [], [], []
+        S_1, S_2, I_1, I_2 = [], [], [], []
+        for i in range(len(self._actions)):
+            ntests1.append(self._actions[i][0])
+            ntests2.append(self._actions[i][1])
+            sone.append(self._actions[i][2])
+            stwo.append(self._actions[i][3])
+            I_1.append((self._states[i][2]/self._states[i][0]))
+            #S_1.append((self._states[i][0]-self._states[i][2]))
+            I_2.append((self._states[i][3]/self._states[i][1]))
+            #S_2.append((self._states[i][1]-self._states[i][3]))                
+        p1.plot(t, ntests1, color='blue', label = 'Tests Herd 1', marker = '.', linestyle = '')
+        p1.plot(t, ntests2, color='red', label = 'Tests Herd 2', marker = '.', linestyle = '')
+        p2.plot(t, sone, color='blue', label = 'Replace Herd 1', marker = '.', linestyle = '')
+        p2.plot(t, stwo, color='red', label = 'Replace Herd 2', marker = '.', linestyle = '')
+        q1.plot(t, I_1, color='lightgreen', label = 'Infectious Herd 1')
+        q1.plot(t, ntests1, color='blue', label = 'Tests Herd 1')
+        q2.plot(t, I_2, color='lightgreen', label = 'Infectious Herd 2')
+        q2.plot(t, ntests2, color='blue', label = 'Tests Herd 2')
+        p1.legend()
+        p2.legend()
+        q1.legend()
+        q2.legend()
+        fig.savefig(fnm + '.jpg',bbox_inches='tight', dpi=150)
+        fig2.savefig(fnm2 + '.jpg',bbox_inches='tight', dpi=150)
+        plt.close('all')
+        return None
     
     def _step(self, action: np.ndarray):
         '''
@@ -268,7 +333,6 @@ class Env_P1(py_environment.PyEnvironment):
             
         #Model should make a step in between transfer and test
         self._state = self._model(action)
-        
         #Testing 
         self._tests.append(self._test(herd = 0, num_tests = num_test_h1))
         self._tests.append(self._test(herd = 1, num_tests = num_test_h2))
@@ -291,13 +355,14 @@ class Env_P1(py_environment.PyEnvironment):
         self._reward = np.float32(self._reward_func(action))
         step_reward = np.float32(0)
         
+        #Plotting
+        self._actions.append(action)
+        self._states.append(self._state)
+        
         #output
         if self._time == self._episode_length:
+            figure = self.plot_actions_and_states()
             return TimeStep(StepType.LAST, reward=self._reward, discount=self._discount, observation=self._observation)
             
         else:
             return TimeStep(StepType.MID, reward=step_reward, discount=self._discount, observation=self._observation)
-
-
-
-
