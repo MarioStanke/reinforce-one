@@ -356,6 +356,7 @@ class P_Env_P1(py_environment.PyEnvironment):
         step_reward = np.float32(0)
         
         #Plotting
+        
         self._actions.append(action)
         self._states.append(self._state)
         
