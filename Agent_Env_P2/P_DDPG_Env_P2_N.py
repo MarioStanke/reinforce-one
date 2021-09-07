@@ -2,15 +2,15 @@
 # coding: utf-8
 
 # Second Phase Environment implemented based on Env_P1 but for more herds in a population
-
-# In[1]:
+# Is equivalent to Env_P2_N except for an added plotting function along with the needed data collection.
+# To be used for policy evaluation.
 
 
 import datetime as dt
 import matplotlib
 import matplotlib.pyplot as plt
 get_ipython().run_line_magic('matplotlib', 'inline')
-plt.ioff() # for py work
+plt.ioff() 
 import numpy as np
 import os
 import pandas as pd
@@ -41,19 +41,24 @@ class P_Env_P2_N(py_environment.PyEnvironment):
                 rand_infection_prob = 0.01
                 ):
         super(P_Env_P2_N, self).__init__()
+        # State: [population_herd_1, ... , population_herd_n, infectious_herd_1, ... , infectious_herd_n] 
         self._state = np.zeros(((num_herds*2),), np.int32)
+        # Observation: [time_since_test_herd_1, negative_tests_herd_1, positive_tests_herd_1, ... , positive_tests_herd_n]
         self._observation = np.zeros(((num_herds*3),), np.int32)
+        # Some fixed values
         self._discount = np.float32(1)
         self._time = 0
         self._episode_length = 0
         self._tests = []
         self._reward = np.float32(0)
-        self._c_tests = 0.5   #cost for each test
-        self._c_prime_tests = 10    #organizational costs tests
-        self._e_removed = 3   #individual replacement cost
+        self._c_tests = 0.5   # Fixed ost for each test
+        self._c_prime_tests = 10    # Organizational costs tests
+        self._e_removed = 3   # Fixed individual replacement cost
         self._weeks_until_testresults = 3
+        # Params for a later feature with differently sized herds
         self._split_even = split_even
         self._population_range = population_range
+        # Model defining metrics
         self._num_herds = num_herds
         self._num_transfers = num_transfers
         self._total_population = total_population
@@ -61,21 +66,18 @@ class P_Env_P2_N(py_environment.PyEnvironment):
         self._weeks_until_exchange = weeks_until_exchange    #T from scrapsheet
         self._rand_recovery_prob = rand_recovery_prob    #g from scrapsheet
         self._rand_infection_prob = rand_infection_prob    #q from scrapsheet
-        
+        # Variables for Plotting
         self._a_and_s = []
         self._root_dir = root_dir
         self._global_step = global_step
     
     def action_spec(self):
-        #Actions for: number of subjects to be tested h1, h2. number of subjects to be eliminated h1, h2
-        max_array = np.ones(((self._num_herds*2),), np.int32)
-        for i in range (0, self._num_herds):
-            max_array[i] = self._state[i]
+        # Actions: [num_tests_herd_1, ... , num_tests_herd_n, slaughter_herd_1, ... slaughter_herd_n]
         return BoundedArraySpec(((self._num_herds*2),), np.float32, minimum=0, maximum=1)
     
     
     def observation_spec(self):
-        # tau, x0, x1 for both herds
+        # Observation: [time_since_test_herd_1, negative_tests_herd_1, positive_tests_herd_1, ... , positive_tests_herd_n]
         max_array = np.ones(((self._num_herds),), np.int32)
         for i in range (0, self._num_herds):
             max_array[i] = self._state[i]
@@ -85,13 +87,11 @@ class P_Env_P2_N(py_environment.PyEnvironment):
     
     def _reset(self):
         '''
-        State consists of actual state of each herd (population and infected, state[1]),
-        and observation the agent gets to see (state[0]).
-        state[0] contains:
-        number of steps since test has taken place,
-        number of positive tests,
-        number of negative tests
-        for each herd.  
+        Resets all variables the model could change over time.
+        State will be reset to no infected except for random number of initial infected in herd 1 
+        (between 1 and (1/8)*population_herd_1).
+        Observation will be reset to zeros.
+        Returns TimeStep object with StepType.First.
         '''
         self._a_and_s = []
         self._state = np.zeros(((self._num_herds*2),), np.int32)
@@ -148,7 +148,7 @@ class P_Env_P2_N(py_environment.PyEnvironment):
         Then, depending on whether a herd is to be replaced by healthy subjects (action),
         calls f(x) or simply replaces all subjects by healthy subjects for each herd.
         '''
-        #Model for one herd
+        # Model for one herd
         def f(x):
             S = np.int32(x[0])
             I = np.int32(x[1])
@@ -160,13 +160,13 @@ class P_Env_P2_N(py_environment.PyEnvironment):
             recoveries = np.sum(rec_rvs)
             rand_infs = np.sum(rand_rvs)
             potential_infs = min(potential_infs, S)
-            #code draw whether subject to be infected is already infected or sus
+            # Draw whether subject to be infected is already infected or susceptible
             if potential_infs >= 1:
                 new_infs = hypergeom.rvs(M = (S + I), n = S, N = potential_infs, size = None)
             new_I = I + new_infs + rand_infs - recoveries
             return new_I
         
-        #One step for each herd
+        # One step for each herd
         step_results = self._state
         temp_x = np.zeros((2,), np.int32)
         for i in range (self._num_herds, self._num_herds*2):
@@ -178,7 +178,12 @@ class P_Env_P2_N(py_environment.PyEnvironment):
     
     def _reward_func(self, action: np.ndarray):
         '''
-        Calculates and returns reward.
+        Calculates and returns reward. 
+        Negative Reward for infectious grows (or rather decreases) exponentially, 
+        others have a linear decrease.
+        
+        Reward is scaled against episode length before output, 
+        so it is comparable across different episode lengths.
         '''
         for i in range (0, self._num_herds):
             self._reward -= self._discount * (action[i] * self._c_tests + min(action[i],1) * self._c_prime_tests) / (self._total_population/self._num_herds)
@@ -228,12 +233,12 @@ class P_Env_P2_N(py_environment.PyEnvironment):
         Afterwards, tests subjects if action dictates it and outputs testresults
         if time for testing has been concluded.
         Finally, calculates reward and returns a Time_Step object.
-        TimeStep(StepType.MID, reward=reward, discount=self._discount, observation=self._observation)
+        TimeStep(StepType.MID, reward=step_reward, discount=self._discount, observation=self._observation)
         '''
         if self._current_time_step.is_last():
             return self.reset()
         
-        #Converting continuous inputs into discrete actions while maintaining gradient
+        # Converting continuous inputs into discrete actions while maintaining gradient
         for a in range (0, self._num_herds):
             floor = np.floor(action[a]*self._state[a])
             diff = (action[a]*self._state[a]) - floor
@@ -295,7 +300,7 @@ class P_Env_P2_N(py_environment.PyEnvironment):
         
 
         #Reward function
-        self._reward = self._reward_func(action)
+        self._reward = np.float32(self._reward_func(action))
         step_reward = np.float32(0)
             
         #Plotting
@@ -313,9 +318,10 @@ class P_Env_P2_N(py_environment.PyEnvironment):
         act = [average, num_replace, av_infectious]
         self._a_and_s.append(act)
         
-        #output
+        #Output
         if self._time == self._episode_length:
             self.plot_actions_and_states()
-            return TimeStep(StepType.LAST, reward=self._reward, discount=self._discount, observation=self._observation)
+            scaled_reward = np.float32(self._reward / self._episode_length)
+            return TimeStep(StepType.LAST, reward=scaled_reward, discount=self._discount, observation=self._observation)
         else:
             return TimeStep(StepType.MID, reward=step_reward, discount=self._discount, observation=self._observation)

@@ -3,8 +3,6 @@
 
 # Second Phase Environment implemented based on Env_P1 but for more herds in a population
 
-# In[1]:
-
 
 import datetime as dt
 import matplotlib
@@ -37,8 +35,11 @@ class Env_P2_N(py_environment.PyEnvironment):
                 rand_infection_prob = 0.01
                 ):
         super(Env_P2_N, self).__init__()
+        # State: [population_herd_1, ... , population_herd_n, infectious_herd_1, ... , infectious_herd_n]
         self._state = np.zeros(((num_herds*2),), np.int32)
+        # Observation: [time_since_test_herd_1, negative_tests_herd_1, positive_tests_herd_1, ... , positive_tests_herd_n]
         self._observation = np.zeros(((num_herds*3),), np.int32)
+        # Some fixed values
         self._discount = np.float32(1)
         self._time = 0
         self._episode_length = 0
@@ -48,8 +49,10 @@ class Env_P2_N(py_environment.PyEnvironment):
         self._c_prime_tests = 10    #organizational costs tests
         self._e_removed = 3   #individual replacement cost
         self._weeks_until_testresults = 3
+        # Params for a later feature with differently sized herds
         self._split_even = split_even
         self._population_range = population_range
+        # Model defining metrics
         self._num_herds = num_herds
         self._num_transfers = num_transfers
         self._total_population = total_population
@@ -59,12 +62,12 @@ class Env_P2_N(py_environment.PyEnvironment):
         self._rand_infection_prob = rand_infection_prob    #q from scrapsheet
     
     def action_spec(self):
-        #Actions for: number of subjects to be tested h1, h2. number of subjects to be eliminated h1, h2
+        # Actions: [num_tests_herd_1, ... , num_tests_herd_n, slaughter_herd_1, ... slaughter_herd_n]
         return BoundedArraySpec(((self._num_herds*2),), np.float32, minimum=np.float32(0), maximum=np.float32(1))
     
     
     def observation_spec(self):
-        # tau, x0, x1 for both herds
+        # Observation: [time_since_test_herd_1, negative_tests_herd_1, positive_tests_herd_1, ... , positive_tests_herd_n]
         max_array = np.ones(((self._num_herds),), np.int32)
         for i in range (0, self._num_herds):
             max_array[i] = self._state[i]
@@ -74,13 +77,11 @@ class Env_P2_N(py_environment.PyEnvironment):
     
     def _reset(self):
         '''
-        State consists of actual state of each herd (population and infected, state[1]),
-        and observation the agent gets to see (state[0]).
-        state[0] contains:
-        number of steps since test has taken place,
-        number of positive tests,
-        number of negative tests
-        for each herd.  
+        Resets all variables the model could change over time.
+        State will be reset to no infected except for random number of initial infected in herd 1 
+        (between 1 and (1/8)*population_herd_1).
+        Observation will be reset to zeros.
+        Returns TimeStep object with StepType.First.
         '''
         self._state = np.zeros(((self._num_herds*2),), np.int32)
         if self._split_even:
@@ -166,7 +167,12 @@ class Env_P2_N(py_environment.PyEnvironment):
     
     def _reward_func(self, action: np.ndarray):
         '''
-        Calculates and returns reward.
+        Calculates and returns reward. 
+        Negative Reward for infectious grows (or rather decreases) exponentially, 
+        others have a linear decrease.
+        
+        Reward is scaled against episode length before output, 
+        so it is comparable across different episode lengths.
         '''
         for i in range (0, self._num_herds):
             self._reward -= self._discount * (action[i] * self._c_tests + min(action[i],1) * self._c_prime_tests) / (self._total_population/self._num_herds)
@@ -182,7 +188,7 @@ class Env_P2_N(py_environment.PyEnvironment):
         Afterwards, tests subjects if action dictates it and outputs testresults
         if time for testing has been concluded.
         Finally, calculates reward and returns a Time_Step object.
-        TimeStep(StepType.MID, reward=reward, discount=self._discount, observation=self._observation)
+        TimeStep(StepType.MID, reward=step_reward, discount=self._discount, observation=self._observation)
         '''
         if self._current_time_step.is_last():
             return self.reset()
