@@ -26,13 +26,13 @@ class HerdEnv(py_environment.PyEnvironment):
     """
     def __init__(self,
                 herd_sizes = [32,32],
-                expected_episode_length = 270,
-                max_episode_length = 1000,
+                expected_episode_length = 270, # if non-positive episodes all have max_episode_length
+                max_episode_length = 1000, #
                 rand_recovery_prob = 0.008,
                 rand_infection_prob = 0.01,
-                culling_cost_herd  = 30.,   # herd replacement fixed costs
+                culling_cost_herd  = 0.,   # herd replacement fixed costs
                 culling_cost_individual  = 1.,   # individual replacement cost
-                cost_infected = 20.  # cost for each infected at end
+                cost_infected = .5  # cost for each step and infected at end
                 ):
         super(HerdEnv, self).__init__()
         self._discount = np.float32(1)
@@ -51,13 +51,16 @@ class HerdEnv(py_environment.PyEnvironment):
         self._rand_infection_prob = rand_infection_prob    #q from scrapsheet
         
         # state: for each herd
-        # the number of infected I and the time lastC since last culling 
+        # - the current number of infected I
+        # - the cumulative number of infectec since the episode start and
+        # - the time lastC since last culling 
         # I[0], I[1], ..., lastC[0], lastC[1], .... 
-        self._state = np.zeros(self._num_herds*2, np.int32) 
+        self._state = np.zeros(self._num_herds*3, np.int32)
         
         # For each herd only the times since last culling are observed
         # and returned as floats for learning.
-        self._observation = np.zeros(self._num_herds, np.float32) # lastC[0], lastC[1], ....
+        # time, lastC[0], lastC[1], ....
+        self._observation = np.zeros(1+self._num_herds, np.float32) 
         
         
     def action_spec(self):
@@ -69,7 +72,7 @@ class HerdEnv(py_environment.PyEnvironment):
     
     def observation_spec(self):
         """ For each herd the time since last culling is observed. """
-        return BoundedArraySpec((self._num_herds,), dtype=np.float32,
+        return BoundedArraySpec((1+self._num_herds,), dtype=np.float32,
                                 minimum=0,
                                 maximum=1,
                                 name="observation")
@@ -80,16 +83,25 @@ class HerdEnv(py_environment.PyEnvironment):
         
         # assume 0 infected per herd in the beginning,
         # 0 steps since last culling
-        self._state = np.array([0] * self._num_herds + [0] * self._num_herds, np.int32)        
+        self._state = np.array([0] * self._num_herds + # current infected
+                               [0] * self._num_herds + # cumulative infected
+                               [0] * self._num_herds,  # time since last culling
+                               np.int32)        
         self._time = 0
         
         # determine episode length
-        self._episode_length = geom.rvs(p = 1./self._expected_episode_length)
-        if self._episode_length > self._max_episode_length:
+        # either fixed at _max_episode_length or truncated geometric
+        if self._expected_episode_length <= 0:
             self._episode_length = self._max_episode_length
+        else:
+            self._episode_length = geom.rvs(p = 1./self._expected_episode_length)
+            if self._episode_length > self._max_episode_length:
+                self._episode_length = self._max_episode_length
                 
-         # observe the second half of state - the times
-        self._observation = self._state[self._num_herds:].astype(np.float32)
+        # observe the global time ...
+        self._observation[0] = self._time
+        # ... and the last third of state - the culling times
+        self._observation[1:] = self._state[2*self._num_herds:].astype(np.float32)
         reward = np.float32(0)
         return TimeStep(StepType.FIRST, reward=reward,
                     discount=self._discount, observation = self._observation)
@@ -119,16 +131,19 @@ class HerdEnv(py_environment.PyEnvironment):
         for i in range (self._num_herds):
             if action & 2**i: # bit of i-th herd is set in action integer
                 self._state[i] = 0 # herd is culled, starts with 0 infections
-                self._state[self._num_herds + i] = 0. # clock reset, 0 steps since last culling
+                self._state[2*self._num_herds + i] = 0. # clock reset, 0 steps since last culling
             else:
-                self._state[self._num_herds + i] += 1. # one more step since last culling
+                self._state[2*self._num_herds + i] += 1. # one more step since last culling
                 I = self._state[i]
                 S = self._herd_sizes[i] - I
                 self._state[i] = f(S, I)
                 if self._state[i] > self._herd_sizes[i]:
                     self._state[i] = self._herd_sizes[i]
+        # accumulate: add numbers of currently infected to cumulative infected
+        self._state[self._num_herds:2*self._num_herds] += self._state[:self._num_herds]
 
-        self._observation = self._state[self._num_herds:].astype(np.float32) 
+        self._observation[0] = self._time
+        self._observation[1:] = self._state[2*self._num_herds:].astype(np.float32) 
         self._observation /= self._max_episode_length
         return self._state
     
@@ -153,8 +168,8 @@ class HerdEnv(py_environment.PyEnvironment):
                     self._culling_cost_herd +
                      self._herd_sizes[i] * self._culling_cost_individual)
         if lastStep: # at the episode end penalize any infected animal
-            I = self._state[0:self._num_herds]
-            r += - I.sum() * self._cost_infected
+            cumI = self._state[self._num_herds:2*self._num_herds]
+            r += - cumI.sum() * self._cost_infected
         return r
  
     def _step(self, action):
