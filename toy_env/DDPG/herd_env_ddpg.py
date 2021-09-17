@@ -34,7 +34,7 @@ class HerdEnv_DDPG(py_environment.PyEnvironment):
                 culling_cost_individual  = 1.,   # individual replacement cost
                 cost_infected = .5  # cost for each step and infected at end
                 ):
-        super(HerdEnv, self).__init__()
+        super(HerdEnv_DDPG, self).__init__()
         self._discount = np.float32(1)
         self._time = 0
         self._episode_length = 0
@@ -66,11 +66,11 @@ class HerdEnv_DDPG(py_environment.PyEnvironment):
     def action_spec(self):
         # For each heard a probability for culling
         # ddpg requires continuous actions 
-        return BoundedArraySpec((self._num_herds), dtype=np.float32,
+        return BoundedArraySpec(((self._num_herds),), dtype=np.float32,
                                 minimum=0., maximum=1., name="action")
     
     def observation_spec(self):
-        """ For each herd the time since last culling is observed. """
+        ''' For each herd the time since last culling is observed.'''
         return BoundedArraySpec((1+self._num_herds,), dtype=np.float32,
                                 minimum=0,
                                 maximum=1,
@@ -128,7 +128,7 @@ class HerdEnv_DDPG(py_environment.PyEnvironment):
         
         # One step for each herd
         for i in range (self._num_herds):
-            if action & 2**i: # bit of i-th herd is set in action integer
+            if action[i] == 1: # bit of i-th herd is set in action integer
                 self._state[i] = 0 # herd is culled, starts with 0 infections
                 self._state[2*self._num_herds + i] = 0. # clock reset, 0 steps since last culling
             else:
@@ -147,10 +147,10 @@ class HerdEnv_DDPG(py_environment.PyEnvironment):
         return self._state
     
     def _action_array(self, action:float):
-        """ get the Boolean array of actions per herd from the probabilities""""
+        """ get the Boolean array of actions per herd from the probabilities"""
         action_array = np.zeros(self._num_herds, np.int32)
         for i in range (0, self._num_herds):#
-            act = np.int32(bernoulli.rvs(diff, size = None))
+            act = np.int32(bernoulli.rvs(action[i], size = None))
             assert (act == 0 or act == 1), "Action takes weird values:" + str(act)
             if (act == 1):
                 action_array[i] = 1
@@ -160,11 +160,10 @@ class HerdEnv_DDPG(py_environment.PyEnvironment):
         '''
         Calculates and returns reward.
         '''
-        action_array = self._action_array(action)
         r = 0
         for i in range (0, self._num_herds):
             # penalize culled herds with a per-animal cost
-            if action_array[i]: # i-th herd is completely slaughtered
+            if action[i] == 1: # i-th herd is completely slaughtered
                 r += - self._discount * (
                     self._culling_cost_herd +
                      self._herd_sizes[i] * self._culling_cost_individual)
@@ -182,6 +181,7 @@ class HerdEnv_DDPG(py_environment.PyEnvironment):
         '''
         if self._current_time_step.is_last():
             return self.reset()
+        action = self._action_array(action)
         
         self._time += 1
         self._model(action) # changes _state, _observation
