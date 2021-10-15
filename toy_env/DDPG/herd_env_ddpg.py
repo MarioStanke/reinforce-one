@@ -31,7 +31,7 @@ class HerdEnv_DDPG(py_environment.PyEnvironment):
                 rand_recovery_prob = 0.008,
                 rand_infection_prob = 0.01,
                 culling_cost_herd  = 0.,   # herd replacement fixed costs
-                culling_cost_individual  = 1.,   # individual replacement cost
+                culling_cost_individual  = .5,   # individual replacement cost
                 cost_infected = .5  # cost for each step and infected at end
                 ):
         super(HerdEnv_DDPG, self).__init__()
