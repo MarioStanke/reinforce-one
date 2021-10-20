@@ -250,11 +250,11 @@ class Env_P2_N(py_environment.PyEnvironment):
 
         #Reward function
         self._reward = np.float32(self._reward_func(action))
-        step_reward = np.float32(0)
+        #step_reward = np.float32(0)
             
         #output
         if self._time == self._episode_length:
-            scaled_reward = np.float32(self._reward / self._episode_length)
-            return TimeStep(StepType.LAST, reward=scaled_reward, discount=self._discount, observation=self._observation)
+            #scaled_reward = np.float32(self._reward / self._episode_length)
+            return TimeStep(StepType.LAST, reward=self._reward, discount=self._discount, observation=self._observation)
         else:
-            return TimeStep(StepType.MID, reward=step_reward, discount=self._discount, observation=self._observation)
+            return TimeStep(StepType.MID, reward=self._reward, discount=self._discount, observation=self._observation)
