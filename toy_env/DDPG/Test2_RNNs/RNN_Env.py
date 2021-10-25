@@ -35,7 +35,7 @@ class FREnv(py_environment.PyEnvironment):
                 cost_infected = .025  # cost for each step and infected at end
                 ):
         super(FREnv, self).__init__()
-        self._discount = np.float32(1)
+        self._discount = 1.
         self._time = 0
         self._episode_length = 0
         self._reward = np.float32(0)
@@ -89,6 +89,7 @@ class FREnv(py_environment.PyEnvironment):
                                np.int32)        
         self._time = 0
         self._reward = np.float32(0)
+        self._discount = np.float32(self._discount)
         
         # determine episode length
         # either fixed at _max_episode_length or truncated geometric
@@ -188,11 +189,13 @@ class FREnv(py_environment.PyEnvironment):
         
         st = StepType.MID
         self._reward = self._reward_func(action)
+        self._reward = np.float32(self._reward)
+        
         if self._time == self._episode_length:
             st = StepType.LAST
             return termination(self._observation, self._reward)
         else:
-            return transition(self._observation, self._reward, self._discount)
+            return transition(self._observation, self._reward, np.float32(self._discount))
         
     def get_state(self):
         return self._state
