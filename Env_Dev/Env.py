@@ -1,9 +1,16 @@
-#!/usr/bin/env python
-# coding: utf-8
+# Second Phase Environment implemented based on Env_P1 but for n herds in a population
+'''
+TODOS:
+-Add Transfer Block Action 
+-Figure out how to decide episode length (gleichverteilung?) *Check (for now)
+-Clean up redundancies
+-Add some assertion errors
+-Write proper tests
+-split even issue?
+-Check transfer pair finding
+-Look through chat and notes for further improvements
 
-# Second Phase Environment implemented based on Env_P1 but for more herds in a population
-
-
+'''
 import datetime as dt
 import matplotlib
 import matplotlib.pyplot as plt
@@ -23,7 +30,7 @@ from tf_agents.specs import BoundedArraySpec
 from tf_agents.trajectories.time_step import StepType, TimeStep, termination, transition
 
 
-class Env_P2_N(py_environment.PyEnvironment):
+class Env(py_environment.PyEnvironment):
     def __init__(self,
                 num_herds = 10,
                 total_population = 3000,
@@ -33,9 +40,9 @@ class Env_P2_N(py_environment.PyEnvironment):
                 weeks_until_exchange = 3,
                 rand_recovery_prob = 0.005,
                 rand_infection_prob = 0.01,
-                mean_episode_length = 100
+                mean_episode_length = 270
                 ):
-        super(Env_P2_N, self).__init__()
+        super(Env, self).__init__()
         # State: [population_herd_1, ... , population_herd_n, infectious_herd_1, ... , infectious_herd_n]
         self._state = np.zeros(((num_herds*2),), np.int32)
         # Observation: [time_since_test_herd_1, negative_tests_herd_1, positive_tests_herd_1, ... , positive_tests_herd_n]
@@ -43,14 +50,16 @@ class Env_P2_N(py_environment.PyEnvironment):
         # Some fixed values
         self._discount = np.float32(1)
         self._time = 0
-        self._episode_length = 0
+        self._episode_length = 0#
+        self._mean_episode_length = np.int32(mean_episode_length)
+        # List of Tests for output
         self._tests = []
+        # Reward Function values
         self._reward = np.float32(0)
         self._c_tests = 0.25   #cost for each test
         self._c_prime_tests = 5    #organizational costs tests
         self._e_removed = 2.5   #individual replacement cost
         self._weeks_until_testresults = 3
-        self._mean_episode_length = np.int32(mean_episode_length)
         # Params for a later feature with differently sized herds
         self._split_even = split_even
         self._population_range = population_range
@@ -58,7 +67,7 @@ class Env_P2_N(py_environment.PyEnvironment):
         self._num_herds = num_herds
         self._num_transfers = num_transfers
         self._total_population = total_population
-        self._exchanged_members = np.int32(np.round(total_population / (num_transfers*num_herds*5)))    #k from scrapsheet
+        self._exchanged_members = max(4, np.int32(np.round(total_population / (num_transfers*num_herds*5))))    #k from scrapsheet
         self._weeks_until_exchange = weeks_until_exchange    #T from scrapsheet
         self._rand_recovery_prob = rand_recovery_prob    #g from scrapsheet
         self._rand_infection_prob = rand_infection_prob    #q from scrapsheet
@@ -97,11 +106,9 @@ class Env_P2_N(py_environment.PyEnvironment):
         self._time = 0
         self._reward = np.float32(0)
         lower, upper = np.int32(self._mean_episode_length/2.5), np.int32(self._mean_episode_length*2.5)
-        mu, sigma = self._mean_episode_length, 40
+        mu, sigma = self._mean_episode_length, 0.5
         X = truncnorm((lower - mu) / sigma, (upper - mu) / sigma, loc=mu, scale=sigma)
-        self._episode_length = np.int32(X.rvs(size = None)) #min(50 + geom.rvs(p = 1/104), 500)
-        assert 0 < self._episode_length < 500, 'HOW, Why?'
-        assert isinstance(self._episode_length, np.int32), 'Maybe?'
+        self._episode_length = X.rvs(size = None) #min(50 + geom.rvs(p = 1/104), 500) 
         self._state[self._num_herds] = initial_infected_h1    #infected h1
         self._observation = np.zeros(((self._num_herds*3),), np.int32)
         return TimeStep(StepType.FIRST, reward=self._reward,
@@ -228,7 +235,7 @@ class Env_P2_N(py_environment.PyEnvironment):
         np.random.shuffle(indices)
         for i in range (0, self._num_transfers):
             origin_herd = indices[i % (self._num_herds-1)]
-            if i % self._num_herds == 0:
+            if i % self._num_herds == 0:   #This should probably be i % (self._num_herds-1), but even then it's bad
                 target_herd = indices[self._num_herds-1]
             else:
                 target_herd = indices[(i % (self._num_herds-1))-1]

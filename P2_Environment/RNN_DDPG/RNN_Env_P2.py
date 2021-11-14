@@ -14,6 +14,7 @@ import copy
 import random
 from scipy.stats import poisson
 from scipy.stats import geom
+from scipy.stats import truncnorm
 from scipy.stats import hypergeom
 from scipy.stats import bernoulli
 
@@ -31,7 +32,8 @@ class Env_P2_N(py_environment.PyEnvironment):
                 num_transfers = 10,
                 weeks_until_exchange = 3,
                 rand_recovery_prob = 0.005,
-                rand_infection_prob = 0.01
+                rand_infection_prob = 0.01,
+                mean_episode_length = 100
                 ):
         super(Env_P2_N, self).__init__()
         # State: [population_herd_1, ... , population_herd_n, infectious_herd_1, ... , infectious_herd_n]
@@ -48,6 +50,7 @@ class Env_P2_N(py_environment.PyEnvironment):
         self._c_prime_tests = 5    #organizational costs tests
         self._e_removed = 2.5   #individual replacement cost
         self._weeks_until_testresults = 3
+        self._mean_episode_length = np.int32(mean_episode_length)
         # Params for a later feature with differently sized herds
         self._split_even = split_even
         self._population_range = population_range
@@ -93,7 +96,12 @@ class Env_P2_N(py_environment.PyEnvironment):
         self._tests = []
         self._time = 0
         self._reward = np.float32(0)
-        self._episode_length = min(50 + geom.rvs(p = 1/104), 500)  #270
+        lower, upper = np.int32(self._mean_episode_length/2.5), np.int32(self._mean_episode_length*2.5)
+        mu, sigma = self._mean_episode_length, 40
+        X = truncnorm((lower - mu) / sigma, (upper - mu) / sigma, loc=mu, scale=sigma)
+        self._episode_length = np.int32(X.rvs(size = None)) #min(50 + geom.rvs(p = 1/104), 500)
+        assert 0 < self._episode_length < 500, 'HOW, Why?'
+        assert isinstance(self._episode_length, np.int32), 'Maybe?'
         self._state[self._num_herds] = initial_infected_h1    #infected h1
         self._observation = np.zeros(((self._num_herds*3),), np.int32)
         return TimeStep(StepType.FIRST, reward=self._reward,
