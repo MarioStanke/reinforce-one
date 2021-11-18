@@ -33,7 +33,7 @@ class Env_P2_N(py_environment.PyEnvironment):
                 weeks_until_exchange = 3,
                 rand_recovery_prob = 0.005,
                 rand_infection_prob = 0.01,
-                mean_episode_length = 100
+                mean_episode_length = 270
                 ):
         super(Env_P2_N, self).__init__()
         # State: [population_herd_1, ... , population_herd_n, infectious_herd_1, ... , infectious_herd_n]

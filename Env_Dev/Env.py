@@ -85,7 +85,12 @@ class Env(py_environment.PyEnvironment):
         obs_max = np.int32(np.amax(max_array))
         return BoundedArraySpec(((self._num_herds*3),), np.int32, minimum=0, maximum=obs_max)
     
-    
+    def _check_values(self):
+        assert self._num_herds >= 2, "Please set num_herds to at least 2."
+        assert self._total_population >= 10, "Please set total_population to at least 10."
+        assert self._exchanged_members <= (self._total_population/self._num_herds), "More subjects transferred than available."
+        return True
+        
     def _reset(self):
         '''
         Resets all variables the model could change over time.
@@ -94,21 +99,22 @@ class Env(py_environment.PyEnvironment):
         Observation will be reset to zeros.
         Returns TimeStep object with StepType.First.
         '''
+        self._check_values()
         self._state = np.zeros(((self._num_herds*2),), np.int32)
         if self._split_even:
             for i in range (0, self._num_herds):
                 self._state[i] = self._total_population / self._num_herds
         else:
-            raise NameError('Work more Maurice.')
+            raise NameError('Feature not implemented.')
         
         initial_infected_h1 = np.random.randint(low = 1, high = (self._state[0]/8))
         self._tests = []
         self._time = 0
         self._reward = np.float32(0)
         lower, upper = np.int32(self._mean_episode_length/2.5), np.int32(self._mean_episode_length*2.5)
-        mu, sigma = self._mean_episode_length, 0.5
+        mu, sigma = self._mean_episode_length, 40
         X = truncnorm((lower - mu) / sigma, (upper - mu) / sigma, loc=mu, scale=sigma)
-        self._episode_length = X.rvs(size = None) #min(50 + geom.rvs(p = 1/104), 500) 
+        self._episode_length = np.int32(X.rvs(size = None)) #min(50 + geom.rvs(p = 1/104), 500) 
         self._state[self._num_herds] = initial_infected_h1    #infected h1
         self._observation = np.zeros(((self._num_herds*3),), np.int32)
         return TimeStep(StepType.FIRST, reward=self._reward,
@@ -152,21 +158,6 @@ class Env(py_environment.PyEnvironment):
         calls f(x) or simply replaces all subjects by healthy subjects for each herd.
         '''
         #Model for one herd
-        '''def f(S, I): # Susceptible, Infected
-            new_infs = 0
-            inf_rvs = poisson.rvs(0.05, size = I)
-            rec_rvs = poisson.rvs(self._rand_recovery_prob, size = I)
-            rand_rvs = poisson.rvs(self._rand_infection_prob, size = S)
-            potential_infs = np.sum(inf_rvs)
-            recoveries = np.sum(rec_rvs)
-            rand_infs = np.sum(rand_rvs)
-            potential_infs = min(potential_infs, S)
-            # code draw whether subject to be infected is already infected or sus
-            if potential_infs >= 1:
-                new_infs = hypergeom.rvs(M = (S + I), n = S, N = potential_infs, size = None)
-            new_I = I + new_infs + rand_infs - recoveries
-            new_I = max(0, new_I)
-            return new_I'''
         def f(S, I): # Susceptible, Infected
             new_infs = 0
             inf_rvs = poisson.rvs(0.05, size = I)
@@ -231,14 +222,21 @@ class Env(py_environment.PyEnvironment):
         self._time += 1
         
         #Transfers
+        '''
+        The Idea is to make an array of indices of herds.
+        If indices[0] is picked for n herds, make the transfer target indices[n-1]. 
+        In any other case, pick the previous indices entry, i.e. herd indices[i] transfers to herd indices[i-1].
+        
+        '''
         indices = np.arange(self._num_herds)
         np.random.shuffle(indices)
         for i in range (0, self._num_transfers):
-            origin_herd = indices[i % (self._num_herds-1)]
-            if i % self._num_herds == 0:   #This should probably be i % (self._num_herds-1), but even then it's bad
+            origin_herd = indices[i % self._num_herds]
+            if i % self._num_herds == 0:  
                 target_herd = indices[self._num_herds-1]
             else:
-                target_herd = indices[(i % (self._num_herds-1))-1]
+                target_herd = indices[(i % self._num_herds)-1]
+            assert target_herd != origin_herd, 'Target herd and origin herd must not be the same.'
             transfers = self._transfer(origin_herd = origin_herd, target_herd = target_herd)
             back_transfers = self._transfer(origin_herd = target_herd, target_herd = origin_herd)
             if transfers is not None:
