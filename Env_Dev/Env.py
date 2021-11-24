@@ -1,13 +1,15 @@
 # Second Phase Environment implemented based on Env_P1 but for n herds in a population
 '''
 TODOS:
--Add Transfer Block Action 
--Figure out how to decide episode length (gleichverteilung?) *Check (for now)
+-Add Transfer Block Action
+-Test output as percentage of herd population or total tests? (Total tests for now)
+-Add global time as observation
+-Figure out how to decide episode length (fixed length for now?)
 -Clean up redundancies
--Add some assertion errors
+-Add some assertion errors *Check(for now)
 -Write proper tests
 -split even issue?
--Check transfer pair finding
+-Check transfer pair finding  *Check
 -Look through chat and notes for further improvements
 
 '''
@@ -79,16 +81,14 @@ class Env(py_environment.PyEnvironment):
     
     def observation_spec(self):
         # Observation: [time_since_test_herd_1, negative_tests_herd_1, positive_tests_herd_1, ... , positive_tests_herd_n]
-        max_array = np.ones(((self._num_herds),), np.int32)
-        for i in range (0, self._num_herds):
-            max_array[i] = self._state[i]
-        obs_max = np.int32(np.amax(max_array))
-        return BoundedArraySpec(((self._num_herds*3),), np.int32, minimum=0, maximum=obs_max)
+        return BoundedArraySpec(((self._num_herds*3),), np.float32, minimum=np.float32(0), maximum=np.float32(1))
     
     def _check_values(self):
         assert self._num_herds >= 2, "Please set num_herds to at least 2."
         assert self._total_population >= 10, "Please set total_population to at least 10."
         assert self._exchanged_members <= (self._total_population/self._num_herds), "More subjects transferred than available."
+        for i in range (0, np.size(self._observation)):
+            assert 0 <= self._observation[i] <= 1, "Check observation values"
         return True
         
     def _reset(self):
@@ -116,7 +116,7 @@ class Env(py_environment.PyEnvironment):
         X = truncnorm((lower - mu) / sigma, (upper - mu) / sigma, loc=mu, scale=sigma)
         self._episode_length = np.int32(X.rvs(size = None)) #min(50 + geom.rvs(p = 1/104), 500) 
         self._state[self._num_herds] = initial_infected_h1    #infected h1
-        self._observation = np.zeros(((self._num_herds*3),), np.int32)
+        self._observation = np.zeros(((self._num_herds*3),), np.float32)
         return TimeStep(StepType.FIRST, reward=self._reward,
                     discount=self._discount, observation = self._observation)
     
@@ -266,23 +266,27 @@ class Env(py_environment.PyEnvironment):
             for j in range (0, self._num_herds):
                 k = j*3
                 if self._tests[j][1] == 0 and self._tests[j][2] == 0:
-                    self._observation[k] += 1
+                    self._observation[k] += 1 / self._episode_length
                 else:
-                    self._observation[k] = self._tests[j][0]
-                    self._observation[k+1] = self._tests[j][1]
-                    self._observation[k+2] = self._tests[j][2]
+                    self._observation[k] = self._tests[j][0] / self._episode_length
+                    test_sum = self._tests[j][1] + self._tests[j][2]
+                    self._observation[k+1] = self._tests[j][1] / test_sum
+                    self._observation[k+2] = self._tests[j][2] / test_sum
 
             for k in range(0, self._num_herds):
                 self._tests.pop(k)
         else:
             for l in range (0, np.size(self._observation), 3):
-                self._observation[l] += 1
+                self._observation[l] += 1 / self._episode_length
         
 
         #Reward function
         self._reward = np.float32(self._reward_func(action))
         #step_reward = np.float32(0)
             
+        #Testing
+        #self._check_values()
+        
         #output
         if self._time == self._episode_length:
             return termination(self._observation, self._reward)

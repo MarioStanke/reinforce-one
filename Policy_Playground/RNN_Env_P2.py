@@ -33,7 +33,7 @@ class Env_P2_N(py_environment.PyEnvironment):
                 weeks_until_exchange = 3,
                 rand_recovery_prob = 0.005,
                 rand_infection_prob = 0.01,
-                mean_episode_length = 270
+                mean_episode_length = 100
                 ):
         super(Env_P2_N, self).__init__()
         # State: [population_herd_1, ... , population_herd_n, infectious_herd_1, ... , infectious_herd_n]
@@ -46,8 +46,8 @@ class Env_P2_N(py_environment.PyEnvironment):
         self._episode_length = 0
         self._tests = []
         self._reward = np.float32(0)
-        self._c_tests = 0.25   #cost for each test
-        self._c_prime_tests = 5    #organizational costs tests
+        self._c_tests = 0.  #0.25   #cost for each test
+        self._c_prime_tests = 0 #5   #organizational costs tests
         self._e_removed = 2.5   #individual replacement cost
         self._weeks_until_testresults = 3
         self._mean_episode_length = np.int32(mean_episode_length)
