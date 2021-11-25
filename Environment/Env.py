@@ -1,29 +1,28 @@
 # Second Phase Environment implemented based on Env_P1 but for n herds in a population
 '''
 TODOS:
--Add Transfer Block Action
+
+Fixes for Learning:
 -Test output as percentage of herd population or total tests? (Total tests for now)
--Add global time as observation
--Figure out how to decide episode length (fixed length for now?)
--Clean up redundancies
+-Add global time as observation *Check
+-Figure out how to decide episode length (fixed length for now?) *check(for now)
+-Write proper tests *progress
 -Add some assertion errors *Check(for now)
--Write proper tests
+-Fix Reward function so it is comparable over different episode lengths *(Scaled Reward for now)
+
+Improvements:
 -split even issue?
 -Check transfer pair finding  *Check
+-Add Transfer Block Action
+-Clean up redundancies
 -Look through chat and notes for further improvements
 
 '''
-import datetime as dt
-import matplotlib
-import matplotlib.pyplot as plt
 import numpy as np
 import os
-import pandas as pd
-import copy
 import random
 from scipy.stats import poisson
 from scipy.stats import geom
-from scipy.stats import truncnorm
 from scipy.stats import hypergeom
 from scipy.stats import bernoulli
 
@@ -42,21 +41,24 @@ class Env(py_environment.PyEnvironment):
                 weeks_until_exchange = 3,
                 rand_recovery_prob = 0.005,
                 rand_infection_prob = 0.01,
-                mean_episode_length = 270
+                fix_episode_length = False,
+                average_episode_length = 270
                 ):
         super(Env, self).__init__()
         # State: [population_herd_1, ... , population_herd_n, infectious_herd_1, ... , infectious_herd_n]
         self._state = np.zeros(((num_herds*2),), np.int32)
         # Observation: [time_since_test_herd_1, negative_tests_herd_1, positive_tests_herd_1, ... , positive_tests_herd_n]
-        self._observation = np.zeros(((num_herds*3),), np.int32)
-        # Some fixed values
+        self._observation = np.zeros(((num_herds*3)+1,), np.int32)
+        # Discount & time
         self._discount = np.float32(1)
         self._time = 0
-        self._episode_length = 0#
-        self._mean_episode_length = np.int32(mean_episode_length)
-        # List of Tests for output
+        # Episode length
+        self._fix_episode_length = fix_episode_length
+        self._episode_length = 0
+        self._average_episode_length = np.int32(average_episode_length)
+        # List of tests for output
         self._tests = []
-        # Reward Function values
+        # Reward function values
         self._reward = np.float32(0)
         self._c_tests = 0.25   #cost for each test
         self._c_prime_tests = 5    #organizational costs tests
@@ -81,7 +83,7 @@ class Env(py_environment.PyEnvironment):
     
     def observation_spec(self):
         # Observation: [time_since_test_herd_1, negative_tests_herd_1, positive_tests_herd_1, ... , positive_tests_herd_n]
-        return BoundedArraySpec(((self._num_herds*3),), np.float32, minimum=np.float32(0), maximum=np.float32(1))
+        return BoundedArraySpec(((self._num_herds*3)+1,), np.float32, minimum=np.float32(0), maximum=np.float32(1))
     
     def _check_values(self):
         assert self._num_herds >= 2, "Please set num_herds to at least 2."
@@ -99,7 +101,6 @@ class Env(py_environment.PyEnvironment):
         Observation will be reset to zeros.
         Returns TimeStep object with StepType.First.
         '''
-        self._check_values()
         self._state = np.zeros(((self._num_herds*2),), np.int32)
         if self._split_even:
             for i in range (0, self._num_herds):
@@ -111,12 +112,13 @@ class Env(py_environment.PyEnvironment):
         self._tests = []
         self._time = 0
         self._reward = np.float32(0)
-        lower, upper = np.int32(self._mean_episode_length/2.5), np.int32(self._mean_episode_length*2.5)
-        mu, sigma = self._mean_episode_length, 40
-        X = truncnorm((lower - mu) / sigma, (upper - mu) / sigma, loc=mu, scale=sigma)
-        self._episode_length = np.int32(X.rvs(size = None)) #min(50 + geom.rvs(p = 1/104), 500) 
+        if self._fix_episode_length: 
+            self._episode_length = self._average_episode_length
+        else:
+            self._episode_length = geom.rvs(p = 1/self._average_episode_length)
         self._state[self._num_herds] = initial_infected_h1    #infected h1
-        self._observation = np.zeros(((self._num_herds*3),), np.float32)
+        self._observation = np.zeros(((self._num_herds*3)+1,), np.float32)
+        self._check_values()
         return TimeStep(StepType.FIRST, reward=self._reward,
                     discount=self._discount, observation = self._observation)
     
@@ -211,7 +213,7 @@ class Env(py_environment.PyEnvironment):
         if self._current_time_step.is_last():
             return self.reset()
         
-        #Converting continuous inputs into discrete actions while maintaining gradient
+        # Converting continuous inputs into discrete actions while maintaining gradient
         for a in range (0, self._num_herds):
             floor = np.floor(action[a]*self._state[a])
             diff = (action[a]*self._state[a]) - floor
@@ -221,9 +223,9 @@ class Env(py_environment.PyEnvironment):
             
         self._time += 1
         
-        #Transfers
+        # Transfers
         '''
-        The Idea is to make an array of indices of herds.
+        The idea is to create an array of indices of herds and shuffle it randomly.
         If indices[0] is picked for n herds, make the transfer target indices[n-1]. 
         In any other case, pick the previous indices entry, i.e. herd indices[i] transfers to herd indices[i-1].
         
@@ -243,10 +245,10 @@ class Env(py_environment.PyEnvironment):
                 self._state[origin_herd+self._num_herds] = self._state[origin_herd+self._num_herds] - transfers[1] + back_transfers[1]
                 self._state[target_herd+self._num_herds] = self._state[target_herd+self._num_herds] + transfers[1] - back_transfers[1]
             
-        #Model should make a step in between transfer and test
+        # Model should make a step in between transfer and test
         self._state = self._model(action)
                 
-        #Testing
+        # Testing
         for i in range (0, self._num_herds):
             self._tests.append(self._test(herd = i, num_tests = action[i]))
         lim = np.ma.size(self._tests, axis = 0)
@@ -264,31 +266,38 @@ class Env(py_environment.PyEnvironment):
         
         if get_obs:
             for j in range (0, self._num_herds):
-                k = j*3
+                k = (j*3)+1
                 if self._tests[j][1] == 0 and self._tests[j][2] == 0:
-                    self._observation[k] += 1 / self._episode_length
+                    self._observation[k] += np.float32(1 / self._episode_length)
                 else:
-                    self._observation[k] = self._tests[j][0] / self._episode_length
+                    self._observation[k] = np.float32(self._tests[j][0] / self._episode_length)
+                    # Testing is inefficient, to be removed later
+                    assert np.float32(self._weeks_until_testresults / self._episode_length) == np.float32(self._tests[j][0] / self._episode_length), 'We are not the same but should be.'
                     test_sum = self._tests[j][1] + self._tests[j][2]
-                    self._observation[k+1] = self._tests[j][1] / test_sum
-                    self._observation[k+2] = self._tests[j][2] / test_sum
+                    self._observation[k+1] = np.float32(self._tests[j][1] / test_sum)
+                    self._observation[k+2] = np.float32(self._tests[j][2] / test_sum)
 
             for k in range(0, self._num_herds):
-                self._tests.pop(k)
+                test0 = self._tests.pop(0)
+                # Testing is inefficient, to be removed later
+                if (test0[1] + test0[2]) != 0:
+                    assert np.float32(self._observation[((k*3)+1)+1]) == np.float32((test0[1] / (test0[1] + test0[2]))), 'Removed a test that was not in observation.'
         else:
-            for l in range (0, np.size(self._observation), 3):
-                self._observation[l] += 1 / self._episode_length
+            for l in range (0, self._num_herds):
+                self._observation[(l*3)+1] += 1 / self._episode_length
+        self._observation[0] = self._time / self._episode_length
         
-
-        #Reward function
+        # Reward function
         self._reward = np.float32(self._reward_func(action))
         #step_reward = np.float32(0)
+        scaled_reward = np.float32(self._reward/self._time)
             
-        #Testing
+        # Check for errors
         #self._check_values()
         
-        #output
+        # Output
         if self._time == self._episode_length:
-            return termination(self._observation, self._reward)
+            return termination(self._observation, scaled_reward)
         else:
-            return transition(self._observation, self._reward, np.float32(self._discount))
+            return transition(self._observation, scaled_reward, np.float32(self._discount))
+       
