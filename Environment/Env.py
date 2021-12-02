@@ -290,14 +290,14 @@ class Env(py_environment.PyEnvironment):
         # Reward function
         self._reward = np.float32(self._reward_func(action))
         #step_reward = np.float32(0)
-        scaled_reward = np.float32(self._reward/self._time)
+        #scaled_reward = np.float32(self._reward/self._time)
             
         # Check for errors
         #self._check_values()
         
         # Output
         if self._time == self._episode_length:
-            return termination(self._observation, scaled_reward)
+            return termination(self._observation, self._reward)
         else:
-            return transition(self._observation, scaled_reward, np.float32(self._discount))
+            return transition(self._observation, self._reward, np.float32(self._discount))
        
