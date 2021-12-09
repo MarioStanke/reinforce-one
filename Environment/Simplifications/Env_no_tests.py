@@ -1,16 +1,11 @@
-#!/usr/bin/env python
-# coding: utf-8
+# Second Phase Environment implemented based on Env_P1 but for n herds in a population
+'''
+Copy of Env (02.12.21), except observation is percentage of infectious for each herd and global time.
+Thus tests don't play a role.
+'''
 
-# Second Phase Environment implemented based on Env_P1 but for more herds in a population
-
-
-import datetime as dt
-import matplotlib
-import matplotlib.pyplot as plt
 import numpy as np
 import os
-import pandas as pd
-import copy
 import random
 from scipy.stats import poisson
 from scipy.stats import geom
@@ -19,11 +14,10 @@ from scipy.stats import bernoulli
 
 from tf_agents.environments import py_environment
 from tf_agents.specs import BoundedArraySpec
-from tf_agents.trajectories.time_step import StepType
-from tf_agents.trajectories.time_step import TimeStep
+from tf_agents.trajectories.time_step import StepType, TimeStep, termination, transition
 
 
-class Env_P2_N(py_environment.PyEnvironment):
+class Env_NT(py_environment.PyEnvironment):
     def __init__(self,
                 num_herds = 10,
                 total_population = 3000,
@@ -32,22 +26,29 @@ class Env_P2_N(py_environment.PyEnvironment):
                 num_transfers = 10,
                 weeks_until_exchange = 3,
                 rand_recovery_prob = 0.005,
-                rand_infection_prob = 0.01
+                rand_infection_prob = 0.01,
+                fix_episode_length = False,
+                average_episode_length = 270
                 ):
-        super(Env_P2_N, self).__init__()
+        super(Env_NT, self).__init__()
         # State: [population_herd_1, ... , population_herd_n, infectious_herd_1, ... , infectious_herd_n]
         self._state = np.zeros(((num_herds*2),), np.int32)
-        # Observation: [time_since_test_herd_1, negative_tests_herd_1, positive_tests_herd_1, ... , positive_tests_herd_n]
-        self._observation = np.zeros(((num_herds*3),), np.int32)
-        # Some fixed values
+        # Observation: [global time, infectious_herd_1, ... , infectious_herd_n]
+        self._observation = np.zeros(((num_herds)+1,), np.int32)
+        # Discount & time
         self._discount = np.float32(1)
         self._time = 0
+        # Episode length
+        self._fix_episode_length = fix_episode_length
         self._episode_length = 0
+        self._average_episode_length = np.int32(average_episode_length)
+        # List of tests for output
         self._tests = []
+        # Reward function values
         self._reward = np.float32(0)
-        self._c_tests = 0.5   #cost for each test
-        self._c_prime_tests = 10    #organizational costs tests
-        self._e_removed = 3   #individual replacement cost
+        self._c_tests = 0.25   #cost for each test
+        self._c_prime_tests = 5    #organizational costs tests
+        self._e_removed = 2.5   #individual replacement cost
         self._weeks_until_testresults = 3
         # Params for a later feature with differently sized herds
         self._split_even = split_even
@@ -56,7 +57,7 @@ class Env_P2_N(py_environment.PyEnvironment):
         self._num_herds = num_herds
         self._num_transfers = num_transfers
         self._total_population = total_population
-        self._exchanged_members = np.int32(np.round(total_population / (num_transfers*num_herds*5)))    #k from scrapsheet
+        self._exchanged_members = max(4, np.int32(np.round(total_population / (num_transfers*num_herds*5))))    #k from scrapsheet
         self._weeks_until_exchange = weeks_until_exchange    #T from scrapsheet
         self._rand_recovery_prob = rand_recovery_prob    #g from scrapsheet
         self._rand_infection_prob = rand_infection_prob    #q from scrapsheet
@@ -68,13 +69,19 @@ class Env_P2_N(py_environment.PyEnvironment):
     
     def observation_spec(self):
         # Observation: [time_since_test_herd_1, negative_tests_herd_1, positive_tests_herd_1, ... , positive_tests_herd_n]
-        max_array = np.ones(((self._num_herds),), np.int32)
-        for i in range (0, self._num_herds):
-            max_array[i] = self._state[i]
-        obs_max = np.int32(np.amax(max_array))
-        return BoundedArraySpec(((self._num_herds*3),), np.int32, minimum=0, maximum=obs_max)
+        return BoundedArraySpec(((self._num_herds)+1,), np.float32, minimum=np.float32(0), maximum=np.float32(1))
     
-    
+    def _check_values(self):
+        assert self._num_herds >= 2, "Please set num_herds to at least 2."
+        assert self._total_population >= 10, "Please set total_population to at least 10."
+        assert self._exchanged_members <= (self._total_population/self._num_herds), "More subjects transferred than available."
+        for i in range (0, np.size(self._observation)):
+            assert 0 <= self._observation[i] <= 1, "Check observation values"
+        if self._split_even:
+            for j in range (0, self._num_herds-1):
+                assert self._state[j] == self._state[j+1], "Total herd population changes while transfers should be symmetrical."
+        return True
+        
     def _reset(self):
         '''
         Resets all variables the model could change over time.
@@ -88,15 +95,19 @@ class Env_P2_N(py_environment.PyEnvironment):
             for i in range (0, self._num_herds):
                 self._state[i] = self._total_population / self._num_herds
         else:
-            raise NameError('Work more Maurice.')
+            raise NameError('Feature not implemented.')
         
         initial_infected_h1 = np.random.randint(low = 1, high = (self._state[0]/8))
         self._tests = []
         self._time = 0
         self._reward = np.float32(0)
-        self._episode_length = geom.rvs(p = 1/270)
+        if self._fix_episode_length: 
+            self._episode_length = self._average_episode_length
+        else:
+            self._episode_length = geom.rvs(p = 1/self._average_episode_length)
         self._state[self._num_herds] = initial_infected_h1    #infected h1
-        self._observation = np.zeros(((self._num_herds*3),), np.int32)
+        self._observation = np.zeros(((self._num_herds)+1,), np.float32)
+        self._check_values()
         return TimeStep(StepType.FIRST, reward=self._reward,
                     discount=self._discount, observation = self._observation)
     
@@ -138,9 +149,7 @@ class Env_P2_N(py_environment.PyEnvironment):
         calls f(x) or simply replaces all subjects by healthy subjects for each herd.
         '''
         #Model for one herd
-        def f(x):
-            S = np.int32(x[0])
-            I = np.int32(x[1])
+        def f(S, I): # Susceptible, Infected
             new_infs = 0
             inf_rvs = poisson.rvs(0.05, size = I)
             rec_rvs = poisson.rvs(self._rand_recovery_prob, size = I)
@@ -149,20 +158,20 @@ class Env_P2_N(py_environment.PyEnvironment):
             recoveries = np.sum(rec_rvs)
             rand_infs = np.sum(rand_rvs)
             potential_infs = min(potential_infs, S)
-            #code draw whether subject to be infected is already infected or sus
+            # code draw whether subject to be infected is already infected or sus
             if potential_infs >= 1:
                 new_infs = hypergeom.rvs(M = (S + I), n = S, N = potential_infs, size = None)
             new_I = I + new_infs + rand_infs - recoveries
+            new_I = max(0, new_I)
             return new_I
         
         #One step for each herd
         step_results = self._state
-        temp_x = np.zeros((2,), np.int32)
         for i in range (self._num_herds, self._num_herds*2):
             if action[i] == 1:
                 step_results[i] = 0
             else:
-                step_results[i] = f(np.array([(self._state[i-self._num_herds] - self._state[i]), self._state[i]]))
+                step_results[i] = f(S = (self._state[i-self._num_herds] - self._state[i]), I = self._state[i])
         return step_results
     
     def _reward_func(self, action: np.ndarray):
@@ -175,7 +184,7 @@ class Env_P2_N(py_environment.PyEnvironment):
         so it is comparable across different episode lengths.
         '''
         for i in range (0, self._num_herds):
-            self._reward -= self._discount * (action[i] * self._c_tests + min(action[i],1) * self._c_prime_tests) / (self._total_population/self._num_herds)
+            #self._reward -= self._discount * (action[i] * self._c_tests + min(action[i],1) * self._c_prime_tests) / (self._total_population/self._num_herds)
             self._reward -= self._discount * (action[i+self._num_herds] * self._state[i] * self._e_removed ) / (self._total_population/self._num_herds)
             self._reward -= self._discount * (self._state[i+self._num_herds])**1.5 / (self._total_population/self._num_herds)
         return self._reward
@@ -193,7 +202,7 @@ class Env_P2_N(py_environment.PyEnvironment):
         if self._current_time_step.is_last():
             return self.reset()
         
-        #Converting continuous inputs into discrete actions while maintaining gradient
+        # Converting continuous inputs into discrete actions while maintaining gradient
         for a in range (0, self._num_herds):
             floor = np.floor(action[a]*self._state[a])
             diff = (action[a]*self._state[a]) - floor
@@ -203,64 +212,47 @@ class Env_P2_N(py_environment.PyEnvironment):
             
         self._time += 1
         
-        #Transfers
+        # Transfers
+        '''
+        The idea is to create an array of indices of herds and shuffle it randomly.
+        If indices[0] is picked for n herds, make the transfer target indices[n-1]. 
+        In any other case, pick the previous indices entry, i.e. herd indices[i] transfers to herd indices[i-1].
+        
+        '''
         indices = np.arange(self._num_herds)
         np.random.shuffle(indices)
         for i in range (0, self._num_transfers):
-            origin_herd = indices[i % (self._num_herds-1)]
-            if i % self._num_herds == 0:
+            origin_herd = indices[i % self._num_herds]
+            if i % self._num_herds == 0:  
                 target_herd = indices[self._num_herds-1]
             else:
-                target_herd = indices[(i % (self._num_herds-1))-1]
+                target_herd = indices[(i % self._num_herds)-1]
+            assert target_herd != origin_herd, 'Target herd and origin herd must not be the same.'
             transfers = self._transfer(origin_herd = origin_herd, target_herd = target_herd)
             back_transfers = self._transfer(origin_herd = target_herd, target_herd = origin_herd)
             if transfers is not None:
                 self._state[origin_herd+self._num_herds] = self._state[origin_herd+self._num_herds] - transfers[1] + back_transfers[1]
                 self._state[target_herd+self._num_herds] = self._state[target_herd+self._num_herds] + transfers[1] - back_transfers[1]
             
-        #Model should make a step in between transfer and test
+        # Model should make a step in between transfer and test
         self._state = self._model(action)
                 
-        #Testing
+        # Testing
         for i in range (0, self._num_herds):
-            self._tests.append(self._test(herd = i, num_tests = action[i]))
-        lim = np.ma.size(self._tests, axis = 0)
-        get_obs = False
+            self._observation[i+1] = self._state[i+self._num_herds] / self._state[i]
+        self._observation[0] = self._time / self._episode_length
         
-
-        for i in reversed (range (0, lim)):
-            if self._tests[i][0] < self._weeks_until_testresults:
-                self._tests[i][0] += 1
-            elif self._tests[i][0] > self._weeks_until_testresults:
-                raise ValueError()
-            elif self._tests[i][0] == self._weeks_until_testresults:
-                get_obs = True
-                break
-        
-        if get_obs:
-            for j in range (0, self._num_herds):
-                k = j*3
-                if self._tests[j][1] == 0 and self._tests[j][2] == 0:
-                    self._observation[k] += 1
-                else:
-                    self._observation[k] = self._tests[j][0]
-                    self._observation[k+1] = self._tests[j][1]
-                    self._observation[k+2] = self._tests[j][2]
-
-            for k in range(0, self._num_herds):
-                self._tests.pop(k)
-        else:
-            for l in range (0, np.size(self._observation), 3):
-                self._observation[l] += 1
-        
-
-        #Reward function
+        # Reward function
         self._reward = np.float32(self._reward_func(action))
         #step_reward = np.float32(0)
+        #scaled_reward = np.float32(self._reward/self._time)
             
-        #output
+        # Check for errors
+        self._check_values()
+        
+        # Output
         if self._time == self._episode_length:
-            #scaled_reward = np.float32(self._reward / self._episode_length)
-            return TimeStep(StepType.LAST, reward=self._reward, discount=self._discount, observation=self._observation)
+            return termination(self._observation, self._reward)
         else:
-            return TimeStep(StepType.MID, reward=self._reward, discount=self._discount, observation=self._observation)
+            return transition(self._observation, self._reward, np.float32(self._discount))
+       

@@ -26,13 +26,13 @@ class FREnv(py_environment.PyEnvironment):
     """
     def __init__(self,
                 herd_sizes = [32,32],
-                expected_episode_length = 200, # if non-positive episodes all have max_episode_length (270)
+                expected_episode_length = 100, # if non-positive episodes all have max_episode_length (270)
                 max_episode_length = 5000, #
                 rand_recovery_prob = 0.008,
                 rand_infection_prob = 0.01,
                 culling_cost_herd  = 0.,   # herd replacement fixed costs
                 culling_cost_individual  = 1.,   # individual replacement cost
-                cost_infected = .5  # cost for each step and infected at end
+                cost_infected = .025  # cost for each step and infected at end
                 ):
         super(FREnv, self).__init__()
         self._discount = np.float32(1)
@@ -150,7 +150,7 @@ class FREnv(py_environment.PyEnvironment):
     def _action_array(self, action:float):
         """ get the Boolean array of actions per herd from the probabilities"""
         action_array = np.zeros(self._num_herds, np.int32)
-        for i in range (0, self._num_herds):
+        for i in range (0, self._num_herds):#
             act = np.int32(bernoulli.rvs(action[i], size = None))
             assert (act == 0 or act == 1), "Action takes weird values:" + str(act)
             if (act == 1):
