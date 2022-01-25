@@ -8,7 +8,7 @@ Fixes for Learning:
 -Figure out how to decide episode length (fixed length for now?) *check(for now)
 -Write proper tests *progress
 -Add some assertion errors *Check(for now)
--Fix Reward function!!!!!!2022 
+-Fix Reward function so it is comparable over different episode lengths *(Scaled Reward for now)
 -Action conversion normal rounding for slaughter
 
 Improvements:
@@ -32,20 +32,20 @@ from tf_agents.specs import BoundedArraySpec
 from tf_agents.trajectories.time_step import StepType, TimeStep, termination, transition
 
 
-class Env(py_environment.PyEnvironment):
+class Env_LS(py_environment.PyEnvironment):
     def __init__(self,
                 num_herds = 10,
                 total_population = 3000,
                 split_even = True,
                 population_range = None,
-                num_transfers = 0.05,
-                weeks_until_exchange = 2,
-                rand_recovery_prob = 0.01,     #0.0005
-                rand_infection_prob = 0.1,    #0.001
+                num_transfers = 10,
+                weeks_until_exchange = 3,
+                rand_recovery_prob = 0.005,
+                rand_infection_prob = 0.01,
                 fix_episode_length = False,
                 average_episode_length = 270
                 ):
-        super(Env, self).__init__()
+        super(Env_LS, self).__init__()
         # State: [population_herd_1, ... , population_herd_n, infectious_herd_1, ... , infectious_herd_n]
         self._state = np.zeros(((num_herds*2),), np.int32)
         # Observation: [time_since_test_herd_1, negative_tests_herd_1, positive_tests_herd_1, ... , positive_tests_herd_n]
@@ -61,8 +61,8 @@ class Env(py_environment.PyEnvironment):
         self._tests = []
         # Reward function values
         self._reward = np.float32(0)
-        self._c_tests = 0.001   #cost for each test 0.05 
-        self._c_prime_tests = 0.1    #organizational costs tests 2.5
+        self._c_tests = 0.1   #cost for each test
+        self._c_prime_tests = 5    #organizational costs tests
         self._cost_removed = 1.   #individual replacement cost
         self._cost_infectious = 2.   #'Cost' for infectious each step
         self._weeks_until_testresults = 0
@@ -71,9 +71,9 @@ class Env(py_environment.PyEnvironment):
         self._population_range = population_range
         # Model defining metrics
         self._num_herds = num_herds
-        self._num_transfers = np.int32(np.round(total_population * num_transfers))
+        self._num_transfers = num_transfers
         self._total_population = total_population
-        self._exchanged_members = max(4, np.int32(np.round(total_population * num_transfers)))    #k from scrapsheet
+        self._exchanged_members = max(4, np.int32(np.round(total_population / (num_transfers*num_herds*5))))    #k from scrapsheet
         self._weeks_until_exchange = weeks_until_exchange    #T from scrapsheet
         self._rand_recovery_prob = rand_recovery_prob    #g from scrapsheet
         self._rand_infection_prob = rand_infection_prob    #q from scrapsheet
@@ -94,9 +94,6 @@ class Env(py_environment.PyEnvironment):
         for i in range (0, np.size(self._observation)):
             assert 0 <= self._observation[i] <= 1, "Check observation values"
         return True
-    
-    def get_state(self):
-        return self._state
         
     def _reset(self):
         '''
@@ -150,7 +147,7 @@ class Env(py_environment.PyEnvironment):
         '''
         if origin_herd >= 0 and target_herd >=0 and self._time % self._weeks_until_exchange == 0:
             infected_transfers = hypergeom.rvs(M = self._state[origin_herd], 
-                                               n = self._state[origin_herd+self._num_herds], N = self._exchanged_members, size = None)
+                                                 n = self._state[origin_herd+self._num_herds], N = self._exchanged_members, size = None)
             susceptible_transfers = self._exchanged_members - infected_transfers
             return np.array([susceptible_transfers, infected_transfers])    
         else:
@@ -167,9 +164,9 @@ class Env(py_environment.PyEnvironment):
         #Model for one herd
         def f(S, I): # Susceptible, Infected
             new_infs = 0
-            inf_rvs = poisson.rvs(0.1, size = I)    #0.05
-            rec_rvs = poisson.rvs(mu = self._rand_recovery_prob*I)
-            rand_rvs = poisson.rvs(mu = self._rand_infection_prob)
+            inf_rvs = poisson.rvs(0.05, size = I)
+            rec_rvs = poisson.rvs(self._rand_recovery_prob, size = I)
+            rand_rvs = poisson.rvs(self._rand_infection_prob, size = S)
             potential_infs = np.sum(inf_rvs)
             recoveries = np.sum(rec_rvs)
             rand_infs = np.sum(rand_rvs)
@@ -195,13 +192,15 @@ class Env(py_environment.PyEnvironment):
         Calculates and returns reward. 
         Negative Reward for infectious grows (or rather decreases) exponentially, 
         others have a linear decrease.
+        
+        Reward is scaled against episode length before output, 
+        so it is comparable across different episode lengths.
         '''
         step_reward = 0.
-        norm = (self._total_population / self._num_herds)
         for i in range (0, self._num_herds):
-            step_reward -= self._discount * (action[i] * self._c_tests + min(action[i],1) * self._c_prime_tests) / norm
-            step_reward -= self._discount * (action[i+self._num_herds] * self._state[i] * self._cost_removed ) / norm
-            step_reward -= self._discount * (self._state[i+self._num_herds] * self._cost_infectious) / norm
+            step_reward -= self._discount * (action[i] * self._c_tests + min(action[i],1) * self._c_prime_tests) / (self._total_population / self._num_herds)
+            step_reward -= self._discount * (action[i+self._num_herds] * self._state[i] * self._cost_removed ) / (self._total_population / self._num_herds)
+            step_reward -= self._discount * (self._state[i+self._num_herds] * self._cost_infectious) / (self._total_population / self._num_herds)
         return step_reward
     
     def _step(self, action: np.ndarray):
@@ -219,9 +218,9 @@ class Env(py_environment.PyEnvironment):
         
         # Converting continuous inputs into discrete actions while maintaining gradient
         for a in range (0, self._num_herds):
-            floor = np.floor(action[a]*self._state[a])
-            diff = (action[a]*self._state[a]) - floor
-            action[a] = floor + np.int32(bernoulli.rvs(diff, size = None))
+            floor = np.round(action[a]*self._state[a])
+            floor = np.int32(floor)
+            action[a] = floor
         for b in range (self._num_herds, self._num_herds*2):
             if (action[b] >= 0.5):
                 action[b] = 1
@@ -237,7 +236,6 @@ class Env(py_environment.PyEnvironment):
         If indices[0] is picked for n herds, make the transfer target indices[n-1]. 
         In any other case, pick the previous indices entry, i.e. herd indices[i] transfers to herd indices[i-1].
         
-        '''
         indices = np.arange(self._num_herds)
         np.random.shuffle(indices)
         for i in range (0, self._num_transfers):
@@ -251,7 +249,8 @@ class Env(py_environment.PyEnvironment):
             back_transfers = self._transfer(origin_herd = target_herd, target_herd = origin_herd)
             if transfers is not None:
                 self._state[origin_herd+self._num_herds] = self._state[origin_herd+self._num_herds] - transfers[1] + back_transfers[1]
-                self._state[target_herd+self._num_herds] = self._state[target_herd+self._num_herds] + transfers[1] - back_transfers[1]
+                self._state[target_herd+self._num_herds] = self._state[target_herd+self._num_herds] + transfers[1] - back_transfers[1]   
+        '''
             
         # Model should make a step in between transfer and test
         self._state = self._model(action)
@@ -292,7 +291,9 @@ class Env(py_environment.PyEnvironment):
         
         # Reward function
         step_reward = np.float32(self._reward_func(action))
+        self._reward += step_reward
         #step_reward = np.float32(0)
+        #scaled_reward = np.float32(self._reward/self._time)
             
         # Check for errors
         #self._check_values()
