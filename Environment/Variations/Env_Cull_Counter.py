@@ -2,21 +2,7 @@
 '''
 TODOS:
 
-Fixes for Learning:
--Test output as percentage of herd population or total tests? (Total tests for now)
--Add global time as observation *Check
--Figure out how to decide episode length (fixed length for now?) *check(for now)
--Write proper tests *progress
--Add some assertion errors *Check(for now)
--Fix Reward function!!!!!!2022 
--Action conversion normal rounding for slaughter
-
-Improvements:
--split even issue?
--Check transfer pair finding  *Check
--Add Transfer Block Action
--Clean up redundancies
--Look through chat and notes for further improvements
+Add cull counter
 
 '''
 import numpy as np
@@ -32,7 +18,7 @@ from tf_agents.specs import BoundedArraySpec
 from tf_agents.trajectories.time_step import StepType, TimeStep, termination, transition
 
 
-class Env(py_environment.PyEnvironment):
+class Env_CC(py_environment.PyEnvironment):
     def __init__(self,
                 num_herds = 10,
                 total_population = 3000,
@@ -46,7 +32,7 @@ class Env(py_environment.PyEnvironment):
                 fix_episode_length = False,
                 average_episode_length = 270
                 ):
-        super(Env, self).__init__()
+        super(Env_CC, self).__init__()
         # State: [population_herd_1, ... , population_herd_n, infectious_herd_1, ... , infectious_herd_n]
         self._state = np.zeros(((num_herds*2),), np.int32)
         # Observation: [time_since_test_herd_1, negative_tests_herd_1, positive_tests_herd_1, ... , positive_tests_herd_n]
@@ -67,6 +53,7 @@ class Env(py_environment.PyEnvironment):
         self._cost_removed = 1.   #individual replacement cost
         self._cost_infectious = 2.   #'Cost' for infectious each step
         self._weeks_until_testresults = weeks_until_testresults
+        self._cull_counter = 0
         # Params for a later feature with differently sized herds
         self._split_even = split_even
         self._population_range = population_range
@@ -117,6 +104,7 @@ class Env(py_environment.PyEnvironment):
         initial_infected_h1 = np.random.randint(low = 1, high = (self._state[0]/8))
         self._tests = []
         self._time = 0
+        self._cull_counter = 0
         self._reward = np.float32(0)
         if self._fix_episode_length: 
             self._episode_length = self._average_episode_length
@@ -187,6 +175,7 @@ class Env(py_environment.PyEnvironment):
         for i in range (self._num_herds, self._num_herds*2):
             if action[i] == 1:
                 step_results[i] = 0
+                self._cull_counter += 1
             else:
                 step_results[i] = f(S = (self._state[i-self._num_herds] - self._state[i]), I = self._state[i])
         return step_results
@@ -198,10 +187,11 @@ class Env(py_environment.PyEnvironment):
         others have a linear decrease.
         '''
         step_reward = 0.
+        cull_punish = 1 + (self._cull_counter / (self._episode_length))
         norm = (self._total_population / self._num_herds)
         for i in range (0, self._num_herds):
             step_reward -= self._discount * (action[i] * self._c_tests + min(action[i],1) * self._c_prime_tests) / norm
-            step_reward -= self._discount * (action[i+self._num_herds] * self._state[i] * self._cost_removed ) / norm
+            step_reward -= self._discount * (action[i+self._num_herds] * self._state[i] * self._cost_removed * cull_punish) / norm
             step_reward -= self._discount * (self._state[i+self._num_herds] * self._cost_infectious) / norm
         return step_reward
     

@@ -2,22 +2,7 @@
 '''
 TODOS:
 
-Fixes for Learning:
--Test output as percentage of herd population or total tests? (Total tests for now)
--Add global time as observation *Check
--Figure out how to decide episode length (fixed length for now?) *check(for now)
--Write proper tests *progress
--Add some assertion errors *Check(for now)
--Fix Reward function!!!!!!2022 
--Action conversion normal rounding for slaughter
-
-Improvements:
--split even issue?
--Check transfer pair finding  *Check
--Add Transfer Block Action
--Clean up redundancies
--Look through chat and notes for further improvements
-
+Add asymmetric Transfers
 '''
 import numpy as np
 import os
@@ -32,13 +17,13 @@ from tf_agents.specs import BoundedArraySpec
 from tf_agents.trajectories.time_step import StepType, TimeStep, termination, transition
 
 
-class Env(py_environment.PyEnvironment):
+class Env_T(py_environment.PyEnvironment):
     def __init__(self,
                 num_herds = 10,
                 total_population = 3000,
                 split_even = True,
                 population_range = None,
-                exchanged_members = 0.05,    # test 0.03 maybe?
+                exchanged_members = 0.05,    # test 0.03 maybe?  
                 weeks_until_exchange = 2,
                 weeks_until_testresults = 0.,
                 rand_recovery_prob = 0.01,     #0.0005
@@ -46,7 +31,7 @@ class Env(py_environment.PyEnvironment):
                 fix_episode_length = False,
                 average_episode_length = 270
                 ):
-        super(Env, self).__init__()
+        super(Env_T, self).__init__()
         # State: [population_herd_1, ... , population_herd_n, infectious_herd_1, ... , infectious_herd_n]
         self._state = np.zeros(((num_herds*2),), np.int32)
         # Observation: [time_since_test_herd_1, negative_tests_herd_1, positive_tests_herd_1, ... , positive_tests_herd_n]
@@ -66,7 +51,7 @@ class Env(py_environment.PyEnvironment):
         self._c_prime_tests = 0.1    #organizational costs tests 2.5
         self._cost_removed = 1.   #individual replacement cost
         self._cost_infectious = 2.   #'Cost' for infectious each step
-        self._weeks_until_testresults = weeks_until_testresults
+        self._weeks_until_testresults = 0
         # Params for a later feature with differently sized herds
         self._split_even = split_even
         self._population_range = population_range
@@ -96,7 +81,7 @@ class Env(py_environment.PyEnvironment):
             assert 0 <= self._observation[i] <= 1, "Check observation values"
         return True
     
-    def get_state(self):
+    def get_states(self):
         return self._state
         
     def _reset(self):
@@ -206,7 +191,7 @@ class Env(py_environment.PyEnvironment):
         return step_reward
     
     # Get state for plotting infectious
-    def get_states():
+    def _get_state():
         return self._state
     
     def _step(self, action: np.ndarray):
@@ -253,10 +238,9 @@ class Env(py_environment.PyEnvironment):
                 target_herd = indices[(i % self._num_herds)-1]
             assert target_herd != origin_herd, 'Target herd and origin herd must not be the same.'
             transfers = self._transfer(origin_herd = origin_herd, target_herd = target_herd)
-            back_transfers = self._transfer(origin_herd = target_herd, target_herd = origin_herd)
             if transfers is not None:
-                self._state[origin_herd+self._num_herds] = self._state[origin_herd+self._num_herds] - transfers[1] + back_transfers[1]
-                self._state[target_herd+self._num_herds] = self._state[target_herd+self._num_herds] + transfers[1] - back_transfers[1]
+                self._state[origin_herd+self._num_herds] = self._state[origin_herd+self._num_herds] - transfers[1] 
+                self._state[target_herd+self._num_herds] = self._state[target_herd+self._num_herds] + transfers[1] 
             
         # Model should make a step in between transfer and test
         self._state = self._model(action)
