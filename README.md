@@ -4,9 +4,9 @@ Code accompanying master thesis: "Optimizing policies for epidemic control using
 
 # Documentation 
   - [Ideas for Phase 1 Environment (from call on 11.12.20).](docs/2020-12-11-Note.pdf)
-  - "Environment" folder contains all environment variants and environment tests
-  - "Agent" folder contains RNN/ANN DDPG notebook "Agent.ipynv" and Agent_PPO.py for ANN/RNN PPO
-  - "Policy_Test" folder contains a notebook that tests learned policies
+  - "Environment" folder contains all environment variants and environment tests.
+  - "Agent" folder contains RNN/ANN DDPG notebook "Agent.ipynv" and Agent_PPO.py for ANN/RNN PPO.
+  - "Policy_Test" folder contains a notebook that tests learned policies.
   - Usage guides can be found in each folder.
   
 # Dependencies  
