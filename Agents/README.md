@@ -1,6 +1,7 @@
 ## Agent Training
 
 Instructions for use of the Agents are included in each file.  
+Agent_PPO.py will not work without first following the guide in the script.  
 Outputs are generated as follows:  
 - "eval" folder contains evaluation metrics (read in tensorboard).
 - "train" folder contains training metrics (read in tensorboard).
