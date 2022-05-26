@@ -6,6 +6,6 @@ Outputs are generated as follows:
 - "train" folder contains training metrics (read in tensorboard)
 - "policy" folder contains saved models.  
 
-Policies are only saved if they achieve a higher average return than -30.
+Policies are only saved if they achieve a higher average return than -30.  
 Then, only models that perform better during evaluation than previously saved ones are stored.  
 The threshhold for saving is reset to -30 after 5000 iterations.
