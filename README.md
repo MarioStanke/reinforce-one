@@ -22,5 +22,5 @@ pip install tensorflow-probability==0.14.1
 Uses agents from [TF-Agents](https://github.com/tensorflow/agents).  
 Authors: Sergio Guadarrama, Anoop Korattikara, Oscar Ramirez, Pablo Castro,  
 Ethan Holly, Sam Fishman, Ke Wang, Ekaterina Gonina, Neal Wu, Efi Kokiopoulou,  
-Luciano Sbaiz, Jamie Smith, Gábor Bartók, Jesse Berent, Chris Harris, Vincent Vanhoucke, Eugene Brevdo. 
+Luciano Sbaiz, Jamie Smith, Gábor Bartók, Jesse Berent, Chris Harris, Vincent Vanhoucke, Eugene Brevdo.  
 Title: TF-Agents: A library for Reinforcement Learning in TensorFlow, 2018.
