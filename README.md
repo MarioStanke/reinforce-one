@@ -11,11 +11,14 @@ Code accompanying master thesis: "Optimizing policies for epidemic control using
   
 ## Dependencies  
 To use code, please run the following installations.  
-  
+
 pip install tensorflow==2.6.0  
 pip install tf-agents==0.9.0  
 pip install keras==2.6.0  
 pip install tensorflow-probability==0.14.1
+
+For viewing all outputs, tensorboard is needed:  
+pip install tensorboard
 
 ## Citation
 
