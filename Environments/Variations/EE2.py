@@ -209,10 +209,12 @@ class EE2(py_environment.PyEnvironment):
         
         # Converting continuous inputs into discrete actions while maintaining gradient
         for a in range (0, self._num_herds):
+            action[a] = min(1, max(0, action[a]))
             floor = np.floor(action[a]*self._state[a])
             diff = (action[a]*self._state[a]) - floor
             action[a] = floor + np.int32(bernoulli.rvs(diff, size = None))
         for b in range (self._num_herds, self._num_herds*2):
+            action[b] = min(1, max(0, action[b]))
             action[b]= np.int32(bernoulli.rvs(action[b], size = None))
         
         self._time += 1

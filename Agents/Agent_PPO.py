@@ -8,7 +8,7 @@
 # Also, please create a folder titled 'policy' in PATH directory.  
 # Finally, please set env_fn to either EE0, EE0_NT, EE0_A, EE1 or EE1_A (lines 65-70)
 
-PATH = '/home/jovyan/Masterarbeit/PPO/Run_65'
+PATH = '/home/jovyan/Masterarbeit/PPO/Run_67'
 
 # Imports 
 # Firstly, all relevant dependencies will be imported.  
@@ -66,11 +66,11 @@ from EE1_A import EE1_A
 from EE2 import EE2
 
 # Please set all five parameters below to your liking. 
-num_herds = 5
-total_population = 750
+num_herds = 2
+total_population = 300
 average_episode_length = 200
 fix_episode_length = True
-env_fn = EE0_5
+env_fn = EE0
 
 py_env = env_fn(num_herds = num_herds, total_population = total_population, fix_episode_length = fix_episode_length, 
                 average_episode_length = average_episode_length)
