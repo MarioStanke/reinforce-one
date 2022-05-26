@@ -1,14 +1,30 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# PPO Agent for epidemic control model  
-# This notebook will train an agent in an epidemic control environment using PPO with or without RNNs.  
-#   
-# For use, please edit PATH variable below to any folder where training outputs can be stored.  
-# Also, please create a folder titled 'policy' in PATH directory.  
-# Finally, please set env_fn to either EE0, EE0_NT, EE0_A, EE1 or EE1_A (lines 65-70)
+'''
+PPO Agent for epidemic control model  
+This notebook will train an agent in an epidemic control environment using PPO with or without RNNs.  
+For use, please complete the following steps:
 
-PATH = '/home/jovyan/Masterarbeit/PPO/Run_67'
+- Edit PATH variable below to any folder where training outputs can be stored.  
+- Create a folder titled 'policy' in PATH directory.  
+- Edit the sys path insertions (below) to the directories where environments are stored.  
+
+The default variant is ANN PPO, for RNN PPO edit "use_rnns" variable below.  
+Default environment is EE0, for different environments see "Environment" section below (ll. 77-81).  
+For more in-depth changes in hyperparameters edit the "flags" in the hyperparameter section.
+''' 
+
+# Output folder
+PATH = '/home/jovyan/Masterarbeit/out/'
+
+# Path to environment folder
+import sys
+sys.path.insert(1, '/home/jovyan/Masterarbeit/reinforce-one/Environments')
+sys.path.insert(1, '/home/jovyan/Masterarbeit/reinforce-one/Environments/Variations')
+
+# Decide whether to use RNN DDPG or ANN DDPG
+use_rnns = False
 
 # Imports 
 # Firstly, all relevant dependencies will be imported.  
@@ -16,7 +32,6 @@ PATH = '/home/jovyan/Masterarbeit/PPO/Run_67'
 
 # General Imports
 import os
-import sys
 import tensorflow as tf 
 import numpy as np
 import functools
@@ -53,10 +68,6 @@ from tf_agents.trajectories import time_step
 
 # Environment
 # Next, an environment will be imported and initialized.
-
-sys.path.insert(1, '/home/jovyan/Masterarbeit/reinforce-one/Environments')
-sys.path.insert(1, '/home/jovyan/Masterarbeit/reinforce-one/Environments/Variations')
-
 from EE0 import EE0
 from EE0_5 import EE0_5
 from EE0_NT import EE0_NT
@@ -104,14 +115,13 @@ flags.DEFINE_integer('ppo_num_eval_episodes', 200,
                      'The number of episodes to run eval on.')
 flags.DEFINE_integer('ppo_eval_interval', 1000,  #500
                      'Eval interval.')
-flags.DEFINE_boolean('use_rnns', False,
+flags.DEFINE_boolean('use_rnns', use_rnns,
                      'If true, use RNN for policy and value function.')
 
 FLAGS = flags.FLAGS
 
 # PPO
 # Define training function using tf-agent's ppo agent.
-
 def PPO(num_iterations = 200000,
         directory = PATH,
         env_fn = env_fn,
@@ -136,7 +146,7 @@ def PPO(num_iterations = 200000,
         batch_size = 50):
     
     
-        # Create directories for summary output
+    # Create directories for summary output
     directory = os.path.expanduser(directory)
     train_dir = os.path.join(directory, 'train')
     eval_dir = os.path.join(directory, 'eval')
@@ -254,7 +264,7 @@ def PPO(num_iterations = 200000,
             for train_metric in train_metrics:
                 train_metric.tf_summaries(train_step=global_step, step_metrics=train_metrics[:2])
                 
-            # Evaluation
+            # Evaluation and policy storage
             if global_step.numpy() % eval_interval == 0:
                 results = metric_utils.eager_compute(eval_metrics, 
                                                      eval_env,
@@ -265,10 +275,6 @@ def PPO(num_iterations = 200000,
                                                      summary_prefix='Metrics')
                 metric_utils.log_metrics(eval_metrics)
                 print('Global Step = {0}, Average Return = {1}.'.format(global_step.numpy(), results['AverageReturn'].numpy()))
-                if results['AverageReturn'].numpy() >= -7:
-                    eval_interval = 1000
-                if results['AverageReturn'].numpy() < -10:
-                    eval_interval = 1000
                 if results['AverageReturn'].numpy() > best_return:
                     best_return = results['AverageReturn'].numpy()
                     print('New best return: ', best_return)
