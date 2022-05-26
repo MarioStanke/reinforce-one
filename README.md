@@ -18,7 +18,7 @@ pip install keras==2.6.0
 pip install tensorflow-probability==0.14.1
 
 For viewing all outputs, tensorboard is needed:  
-pip install tensorboard
+pip install tensorboard==2.9.0
 
 ## Citation
 
