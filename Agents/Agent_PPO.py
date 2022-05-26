@@ -11,7 +11,7 @@ For use, please complete the following steps:
 - Edit the sys path insertions (below) to the directories where environments are stored.  
 
 The default variant is ANN PPO, for RNN PPO edit "use_rnns" variable below.  
-Default environment is EE0, for different environments see "Environment" section below (ll. 77-81).  
+Default environment is EE0, for different environments see "Environment" section below (ll. 80-84).  
 For more in-depth changes in hyperparameters edit the "flags" in the hyperparameter section.
 ''' 
 
